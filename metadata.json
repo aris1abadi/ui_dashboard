@@ -1,0 +1,5 @@
+{
+  "name": "KarjoAgro Kontrol UI",
+  "description": "A comprehensive control interface for KarjoAgro devices using Alpine.js and MQTT.",
+  "requestFramePermissions": []
+}

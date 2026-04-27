@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KarjoAgro Kontrol UI</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="greenhouse.css" />
+</head>
+
+<body x-data="app" x-init="init()" :class="{ 'lock-scroll': !isAuthenticated }" x-cloak>
+
+  <!-- === Layar Login === -->
+  <div x-show="!isAuthenticated" x-transition.opacity class="login-screen" aria-modal="true" role="dialog"
+    tabindex="-1">
+    <form @submit.prevent="attemptLogin" class="login-card">
+      <h2>Selamat datang di</h2>
+
+      <div class="login-kontrol-block">
+        <button type="button" class="login-kontrol-button" @click="openLoginKontrolModal()"
+          aria-label="Pilih ID Kontrol">
+          <span class="login-kontrol-button-value" x-text="loginKontrolButtonLabel"></span>
+        </button>
+      </div>
+
+      <input x-model="login.username" @input="login.error = ''" type="text" autocomplete="username"
+        placeholder="Nama Pengguna" required />
+
+      <div class="relative w-full">
+        <input x-model="login.password" @input="login.error = ''" :type="login.showPassword ? 'text' : 'password'"
+          autocomplete="current-password" placeholder="Sandi" required class="w-full pr-12" />
+        <button type="button" @click="login.showPassword = !login.showPassword"
+          class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white focus:outline-none"
+          style="margin-bottom: 0; background: transparent; border: none; padding: 0.5rem; height: auto; width: auto;">
+          <span x-text="login.showPassword ? '🙈' : '👁️'"></span>
+        </button>
+      </div>
+
+      <p class="login-error" :class="{'visible': login.error}" x-text="login.error" role="status" aria-live="polite">
+      </p>
+
+      <div class="flex gap-2 items-stretch">
+        <button type="button" @click="attemptLogin('local')" class="btn ghost small px-4 whitespace-nowrap"
+          title="Login langsung ke lokal">Lokal</button>
+        <button type="submit" class="btn primary flex-1">Konek Online</button>
+      </div>
+
+      <p class="login-hint mt-4 text-center text-xs text-gray-500">Akun bawaan: <strong>admin</strong> /
+        <strong>admin123</strong></p>
+    </form>
+
+    <!-- Modal tambah ID Kontrol -->
+    <div x-show="showLoginKontrolModal" x-transition class="modal" role="dialog" aria-modal="true"
+      @click.self="hideLoginKontrolModal()" @keydown.escape.window="hideLoginKontrolModal()">
+      <div class="modal-card login-kontrol-modal">
+        <div class="modal-header mb-4">
+          <div>
+            <h3 class="text-xl font-bold">Pilih ID Kontrol</h3>
+            <p class="text-sm text-gray-400 mt-1" x-text="loginKontrolButtonLabel"></p>
+          </div>
+          <button type="button" @click="hideLoginKontrolModal()" class="modal-close">×</button>
+        </div>
+        <div class="login-kontrol-list mb-6">
+          <template x-for="id in loginKontrolIds" :key="id">
+            <button type="button" class="login-kontrol-option" :class="{ 'active': login.kontrolId === id }"
+              @click="selectLoginKontrolId(id)">
+              <span class="login-kontrol-option-label" x-text="getKontrolLabel(id)"></span>
+              <span class="login-kontrol-option-state" x-show="login.kontrolId === id">Aktif</span>
+            </button>
+          </template>
+          <div x-show="loginKontrolIds.length === 0" class="login-kontrol-empty">
+            Belum ada ID kontrol tersimpan.
+          </div>
+        </div>
+        <div class="login-kontrol-form">
+          <h4 class="text-sm font-bold text-gray-300 mb-3">Tambah ID Kontrol baru</h4>
+          <input x-model="login.newKontrolId" @keyup.enter="submitLoginKontrolModal" type="text"
+            placeholder="ID Kontrol (Contoh: KA-1234)"
+            class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white mb-2" />
+          <input x-model="login.newKontrolAlias" @keyup.enter="submitLoginKontrolModal" type="text"
+            placeholder="Nama Alias (Contoh: Sawah Timur)"
+            class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white mb-4" />
+          <p class="text-xs text-red-500 mb-4" x-show="login.newKontrolIdError" x-text="login.newKontrolIdError"></p>
+          <div class="flex justify-end gap-3">
+            <button type="button" @click="hideLoginKontrolModal()" class="btn ghost small">Batal</button>
+            <button type="button" @click="submitLoginKontrolModal()" class="btn primary small">Simpan</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- === Modal Kalibrasi Distance === -->
+  <div x-show="showDistanceCalibrationModal" @keydown.escape.window="closeDistanceCalibration()" x-transition
+    class="modal calibration-layer" @click.self="closeDistanceCalibration()">
+    <div class="modal-card calibration">
+      <div class="modal-header">
+        <h3 x-text="getUiLabel('calibrationDistance')"></h3>
+        <button @click="closeDistanceCalibration()" class="modal-close">×</button>
+      </div>
+      <div class="modal-body p-6 space-y-6">
+        <div class="flex flex-col gap-2">
+          <div class="text-lg font-bold text-white" x-text="distanceCalibration.label || 'HCSR04 Distance'"></div>
+          <div class="text-sm text-gray-400"
+            x-text="`${getUiLabel('nodeSensor')} ${distanceCalibration.nodeId}:${distanceCalibration.childId}`"></div>
+          <p class="text-xs text-gray-500">Titik 0 cm dianggap permukaan tanah. Kalibrasi ini memakai batas -10 cm
+            sampai 15 cm.</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div class="bg-black/20 p-3 rounded-2xl border border-white/5 min-h-[96px] flex flex-col justify-center">
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Pembacaan</p>
+            <div class="flex flex-1 items-center justify-center">
+              <p class="text-3xl font-black text-white leading-none text-center"
+                x-text="formatNilaiSensor(distanceCalibration.currentValue, 'cm')"></p>
+            </div>
+          </div>
+          <div class="bg-black/20 p-3 rounded-2xl border border-white/5 min-h-[96px] flex flex-col justify-center">
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Raw Sensor</p>
+            <div class="flex flex-1 items-center justify-center">
+              <p class="text-3xl font-black text-primary leading-none text-center"
+                x-text="formatNilaiSensor(distanceCalibration.rawValue, 'cm')"></p>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 mt-5">
+          <button @click="setDistanceCalibrationPoint('low')" class="calibration-action">
+            <span class="calibration-action-label">Nilai -10 cm</span>
+            <span class="calibration-action-value"
+              x-text="formatNilaiSensor(distanceCalibration.lowValue, 'cm')"></span>
+          </button>
+          <button @click="setDistanceCalibrationPoint('high')" class="calibration-action">
+            <span class="calibration-action-label">Nilai +15 cm</span>
+            <span class="calibration-action-value"
+              x-text="formatNilaiSensor(distanceCalibration.highValue, 'cm')"></span>
+          </button>
+        </div>
+
+        <div class="flex flex-col gap-2 mt-4">
+          <button @click="resetDistanceCalibration()" class="btn ghost w-full">Atur Ulang Bawaan</button>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button @click="closeDistanceCalibration()" class="btn ghost">Batal</button>
+        <button @click="saveDistanceCalibration()" class="btn primary" :disabled="actionInFlight">Simpan
+          Kalibrasi</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- === Modal Kalibrasi Fuel Height === -->
+  <div x-show="showFuelCalibrationModal" @keydown.escape.window="closeFuelCalibration()" x-transition
+    class="modal calibration-layer" @click.self="closeFuelCalibration()">
+    <div class="modal-card calibration">
+      <div class="modal-header">
+        <h3 x-text="getUiLabel('calibrationFuel')"></h3>
+        <button @click="closeFuelCalibration()" class="modal-close">×</button>
+      </div>
+      <div class="modal-body p-6 space-y-6">
+        <div class="flex flex-col gap-2">
+          <div class="text-lg font-bold text-white" x-text="fuelCalibration.label || 'Fuel Height'"></div>
+          <div class="text-sm text-gray-400"
+            x-text="`${getUiLabel('nodeSensor')} ${fuelCalibration.nodeId}:${fuelCalibration.childId}`"></div>
+          <p class="text-xs text-gray-500">Sensor ini memakai rentang 0–190 Ω. Nilai 190 Ω = -10 cm dan 0 Ω = 15 cm.
+            Titik 0 cm dianggap permukaan tanah.</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div class="bg-black/20 p-3 rounded-2xl border border-white/5 min-h-[96px] flex flex-col justify-center">
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Pembacaan</p>
+            <div class="flex flex-1 items-center justify-center">
+              <p class="text-3xl font-black text-white leading-none text-center"
+                x-text="formatNilaiSensor(fuelCalibration.currentValue, 'cm')"></p>
+            </div>
+          </div>
+          <div class="bg-black/20 p-3 rounded-2xl border border-white/5 min-h-[96px] flex flex-col justify-center">
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Raw Sensor</p>
+            <div class="flex flex-1 items-center justify-center">
+              <p class="text-3xl font-black text-primary leading-none text-center"
+                x-text="formatNilaiSensor(fuelCalibration.rawValue, 'Ω')"></p>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 mt-5">
+          <button @click="setFuelCalibrationPoint('low')" class="calibration-action">
+            <span class="calibration-action-label">Nilai -10 cm</span>
+            <span class="calibration-action-value" x-text="formatNilaiSensor(fuelCalibration.lowValue, 'Ω')"></span>
+          </button>
+          <button @click="setFuelCalibrationPoint('high')" class="calibration-action">
+            <span class="calibration-action-label">Nilai +15 cm</span>
+            <span class="calibration-action-value" x-text="formatNilaiSensor(fuelCalibration.highValue, 'Ω')"></span>
+          </button>
+        </div>
+
+        <div class="flex flex-col gap-2 mt-4">
+          <button @click="resetFuelCalibration()" class="btn ghost w-full">Atur Ulang Bawaan</button>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button @click="closeFuelCalibration()" class="btn ghost">Batal</button>
+        <button @click="saveFuelCalibration()" class="btn primary" :disabled="actionInFlight">Simpan Kalibrasi</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- === Aplikasi Utama === -->
+  <div class="app" x-show="isAuthenticated">
+    <div class="glow"></div>
+
+    <header class="top-bar">
+      <div>
+        <p class="eyebrow">karjoAgro kontrol</p>
+        <div class="status-inline mt-1" :class="headerStatus.variant" :title="headerStatus.text">
+          <span class="status-inline-icon" x-text="getHeaderStatusIcon()"></span>
+          <span class="status-inline-text" x-text="headerStatus.text"></span>
+        </div>
+      </div>
+      <div class="status-stack">
+        <button @click="openLogModal()" class="btn icon-btn" title="Log Aktivitas"
+          :disabled="actionInFlight">📋</button>
+        <button @click="openSettings()" class="btn icon-btn" title="Setelan" :disabled="actionInFlight">⚙</button>
+        <button x-show="allowTaskCreate" @click="openTaskForm()" class="btn icon-btn"
+          :title="`Tambah ${getUiLabel('task')}`" :disabled="actionInFlight">＋</button>
+        <button @click="logoutApplication()" class="btn icon-btn" title="Keluar" :disabled="actionInFlight">⤺</button>
+      </div>
+    </header>
+
+    <main class="task-view">
+      <!-- Dasbor utama -->
+      <div id="dashboard">
+        <div class="task-grid">
+          <template x-for="(task, index) in paginatedTasks" :key="task.index">
+            <div class="task-card">
+              <div class="task-card-header" @click="openTaskInfo(task)" x-text="getTaskLabel(task)"></div>
+              <div class="task-card-body">
+                <button class="task-main-btn"
+                  :class="{ 'status-btn-on': task.actuatorActive && isActuatorOnline(task), 'status-btn-off': !task.actuatorActive && isActuatorOnline(task), 'status-btn-offline': !isActuatorOnline(task) }"
+                  @click="runTask(task.index, $event.currentTarget)"
+                  :disabled="!isActuatorOnline(task) || actionInFlight"
+                  :aria-label="`${getSensorLabel(task)} ${formatNilaiSensor(task.lastSensorValue)}${getSensorUnit(task) ? ` ${getSensorUnit(task)}` : ''}`">
+                  <div class="glow-ring" :style="{ '--progress': getTaskProgress(task) + '%' }"></div>
+                  <span class="label-top" :title="getSensorLabel(task)"
+                    x-text="pendekkanTeks(getSensorLabel(task), 12)"></span>
+                  <div class="value-container">
+                    <span class="value" x-text="formatNilaiSensor(task.lastSensorValue)"></span>
+                    <span class="unit" x-show="getSensorUnit(task)" x-text="getSensorUnit(task)"></span>
+                  </div>
+                  <span class="label-bottom" :title="getTaskStatusLabel(task)"
+                    x-text="pendekkanTeks(getTaskStatusLabel(task), 18)"></span>
+                  <!-- Indikator proses -->
+                  <template x-if="actionInFlight && loadingTaskIndex === task.index">
+                    <div class="spinner">
+                      <div class="spinner-inner"></div>
+                    </div>
+                  </template>
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+        <template x-if="tasks.length === 0">
+          <div class="meta" style="text-align: center; padding: 4rem; opacity: 0.5;">
+            <p>Belum ada task.</p>
+            <p class="text-xs" x-text="getTaskEmptyHint()"></p>
+          </div>
+        </template>
+      </div>
+
+
+    </main>
+
+    <footer class="app-footer">
+      <!-- Navigasi halaman di footer -->
+      <template x-if="totalTaskPages > 1">
+        <div class="pagination-container mb-4">
+          <button @click="taskPage--" :disabled="taskPage === 0" class="btn icon-btn">◀</button>
+          <div class="pagination-dots">
+            <template x-for="p in totalTaskPages" :key="p-1">
+              <div class="dot" :class="{ 'active': taskPage === p-1 }" @click="taskPage = p-1"></div>
+            </template>
+          </div>
+          <button @click="taskPage++" :disabled="taskPage >= totalTaskPages - 1" class="btn icon-btn">▶</button>
+        </div>
+      </template>
+      <p>by karjoAgro</p>
+    </footer>
+  </div>
+
+  <!-- === Spinner Global === -->
+  <div x-show="logLoading" x-transition.opacity class="global-spinner">
+    <div class="spinner-ring"></div>
+    <div class="spinner-text">Memuat Log...</div>
+  </div>
+
+  <!-- === Modal Setelan === -->
+  <div x-show="showSettingsModal" @keydown.escape.window="showSettingsModal = false" x-transition class="modal"
+    @click.self="showSettingsModal = false">
+    <div class="modal-card settings">
+      <div class="modal-header">
+        <h3>Setelan</h3>
+        <button @click="showSettingsModal = false" class="modal-close">×</button>
+      </div>
+
+      <div class="tab-bar">
+        <button class="tab-btn" :class="{'active': settingsTab === 'status'}"
+          @click="openSettingsTab('status')">Status</button>
+        <button class="tab-btn" :class="{'active': settingsTab === 'setup'}"
+          @click="openSettingsTab('setup')">Umum</button>
+        <button class="tab-btn" :class="{'active': settingsTab === 'nodes'}"
+          @click="openSettingsTab('nodes')">Node</button>
+        <button x-show="!showMaintenanceTab" class="tab-btn" :class="{'active': settingsTab === 'settings'}"
+          @click="openSettingsTab('settings')">Koneksi</button>
+        <button x-show="showMaintenanceTab" class="tab-btn" :class="{'active': settingsTab === 'maintenance'}"
+          @click="openSettingsTab('maintenance')">Jaringan & Pembaruan</button>
+      </div>
+
+      <div class="tab-panel" x-show="settingsTab === 'status'" x-transition>
+        <div class="list mb-8">
+          <div class="item">
+            <div>
+              <div class="title" x-text="getUiLabel('connection')"></div>
+              <div class="meta" x-text="connectionMode"></div>
+            </div>
+            <span class="badge" :class="statusBadge.variant" x-text="statusBadge.text"></span>
+          </div>
+          <div class="item">
+            <div>
+              <div class="title" x-text="getUiLabel('sensor')"></div>
+              <div class="meta">Jumlah node sensor terdeteksi</div>
+            </div>
+            <span class="badge badge-muted" x-text="sensors.length"></span>
+          </div>
+          <div class="item">
+            <div>
+              <div class="title" x-text="getUiLabel('actuator')"></div>
+              <div class="meta">Jumlah aktuator terdeteksi</div>
+            </div>
+            <span class="badge badge-muted" x-text="actuators.length"></span>
+          </div>
+          <div class="item">
+            <div>
+              <div class="title" x-text="getUiLabel('task')"></div>
+              <div class="meta">Jumlah task aktif</div>
+            </div>
+            <span class="badge badge-muted" x-text="tasks.length"></span>
+          </div>
+          <div class="item">
+            <div>
+              <div class="title" x-text="getUiLabel('schedule')"></div>
+              <div class="meta">Jumlah jadwal tersimpan</div>
+            </div>
+            <span class="badge badge-muted" x-text="scheduleCount"></span>
+          </div>
+          <div class="item">
+            <div>
+              <div class="title">Diperbarui</div>
+              <div class="meta">Waktu sinkronisasi terakhir</div>
+            </div>
+            <span class="badge badge-muted"
+              x-text="lastUpdate ? new Date(lastUpdate).toLocaleString('id-ID') : '-'"></span>
+          </div>
+        </div>
+
+        <div class="card-header mt-8 mb-4 flex justify-between items-center">
+          <h3 class="text-lg font-bold">Info Jaringan</h3>
+          <span class="pill bg-gray-800 px-3 py-1 rounded-full text-xs"
+            x-text="network.apMode ? `Titik Akses • ${network.apSsid || '-'}` : (network.state || '-')"></span>
+        </div>
+        <div class="list">
+          <div class="item">
+            <div class="title">Status WiFi</div>
+            <div class="meta" x-text="network.state || '-'"></div>
+          </div>
+          <div class="item">
+            <div class="title">SSID Tersimpan</div>
+            <div class="meta" x-text="network.configuredSsid || '-'"></div>
+          </div>
+          <div class="item">
+            <div class="title">SSID Aktif</div>
+            <div class="meta" x-text="network.connectedSsid || '-'"></div>
+          </div>
+          <div class="item" x-show="network.apMode">
+            <div class="title">SSID AP</div>
+            <div class="meta" x-text="network.apSsid || '-'"></div>
+          </div>
+          <div class="item">
+            <div class="title">IP</div>
+            <div class="meta" x-text="network.ip || '-'"></div>
+          </div>
+          <div class="item">
+            <div class="title">Node</div>
+            <div class="meta" x-text="network.nodeCount ?? 0"></div>
+          </div>
+          <div class="item">
+            <div class="title">ID Kontrol</div>
+            <div class="meta" x-text="network.kontrolId || config.mqtt.kontrolId"></div>
+          </div>
+          <div class="item" x-show="showLoRaChannelUI">
+            <div>
+              <div class="title" x-text="getUiLabel('loraChannel')"></div>
+              <div class="meta"
+                x-text="network.loraChannelStored ? 'Tersimpan di perangkat' : 'Mengikuti nilai bawaan'"></div>
+            </div>
+            <span class="badge badge-muted" x-text="network.loraChannel ?? '-'"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" x-show="settingsTab === 'setup'" x-transition>
+        <div class="item">
+          <div class="form-group w-full">
+            <label>Tema Warna</label>
+            <div class="theme-swatches">
+              <template x-for="themeItem in getThemeSwatches()" :key="themeItem.key">
+                <button type="button" class="theme-swatch" :class="{ 'active': theme === themeItem.key }"
+                  :style="{ background: themeItem.color, color: themeItem.text, boxShadow: theme === themeItem.key ? `0 0 0 2px ${themeItem.accent}55 inset` : 'none' }"
+                  @click="setTheme(themeItem.key)">
+                  <span class="theme-swatch-label" x-text="themeItem.label"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+        </div>
+        <div class="item">
+          <div class="form-group w-full">
+            <label>Background Gambar</label>
+            <div class="flex flex-col gap-4">
+              <template x-if="backgroundImage">
+                <div class="bg-preview-thumb rounded-lg overflow-hidden border border-[#2a2a30]">
+                  <img :src="backgroundImage" class="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                </div>
+              </template>
+              <div class="bg-action-group">
+                <input type="file" accept="image/*" @change="handleBgUpload" class="hidden" id="bg-upload" />
+                <label for="bg-upload" class="btn ghost small cursor-pointer bg-action-btn">Pilih Gambar</label>
+                <button @click="removeBg" class="btn ghost small text-red-500 bg-action-btn"
+                  x-show="backgroundImage">Hapus</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="item">
+          <div class="form-group w-full">
+            <label>ID Kontrol Aktif <span class="text-yellow-500 ml-2"
+                x-show="pendingKontrolId !== config.mqtt.kontrolId">(Belum disimpan)</span></label>
+            <div class="flex gap-2">
+              <select x-model="pendingKontrolId" class="flex-1">
+                <template x-for="id in config.kontrolIds" :key="id">
+                  <option :value="id" x-text="id"></option>
+                </template>
+              </select>
+              <button @click="deleteSelectedKontrolId" class="btn ghost small"
+                :disabled="config.kontrolIds.length <= 1">Hapus</button>
+            </div>
+            <p class="help">Pilih ID Kontrol yang aktif untuk UI ini.</p>
+          </div>
+        </div>
+        <div class="item">
+          <div class="form-group w-full">
+            <label>Atur Waktu Manual</label>
+            <div class="flex gap-2 mb-2">
+              <input type="date" x-model="timeForm.date" class="flex-1" />
+              <input type="time" x-model="timeForm.time" step="60" class="flex-1" />
+            </div>
+            <button @click="setTime" class="btn primary small">Atur Waktu</button>
+            <p class="help">Hanya bekerja dalam mode lokal.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" x-show="settingsTab === 'nodes'" x-transition x-ref="nodesTabPanel">
+        <div class="card-header mb-4">
+          <h3>Daftar Node</h3>
+        </div>
+        <!-- Bagian Sensor -->
+        <div class="mb-6">
+          <h4 class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4" x-text="getUiLabel('sensor')"></h4>
+          <div class="list">
+            <template x-for="sensor in sensors" :key="`${sensor.nodeId}:${sensor.childId}`">
+              <div class="item"
+                :class="{ 'cursor-pointer hover:bg-white/5': isMoistureSensor(sensor) || isDistanceSensor(sensor) || isFuelHeightSensor(sensor) }"
+                @click="isMoistureSensor(sensor) ? openMoistureCalibration(sensor) : (isDistanceSensor(sensor) ? openDistanceCalibration(sensor) : (isFuelHeightSensor(sensor) && openFuelCalibration(sensor)))">
+                <div class="flex-1">
+                  <div class="title flex items-baseline gap-2 flex-wrap">
+                    <span x-text="sensor.label || getUiLabel('sensor')"></span>
+                    <span class="text-white font-bold"
+                      x-text="formatNilaiSensor(sensor.value, getSensorUnit({ sensorNode: sensor.nodeId, sensorChild: sensor.childId }))"></span>
+                  </div>
+                  <div class="meta" x-text="`${getUiLabel('node')} ${sensor.nodeId}:${sensor.childId}`"></div>
+                </div>
+                <span class="badge"
+                  :class="(isMoistureSensor(sensor) || isDistanceSensor(sensor) || isFuelHeightSensor(sensor)) ? 'badge-info' : 'badge-muted'"
+                  x-text="isMoistureSensor(sensor) ? '●' : (isDistanceSensor(sensor) ? '◈' : (isFuelHeightSensor(sensor) ? '◆' : '•'))"></span>
+              </div>
+            </template>
+            <div class="item" x-show="sensors.length === 0">
+              <div class="meta">Belum ada node sensor terdeteksi.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Konfigurasi Deep Sleep -->
+        <div class="bg-[#202026] p-4 rounded-xl border border-[#2a2a30] mb-6">
+          <div class="form-group">
+            <select x-model="deepSleep.nodeId">
+              <option value="">Pilih Node</option>
+              <template x-for="nodeId in sensorNodeIds" :key="nodeId">
+                <option :value="nodeId" x-text="`${getUiLabel('node')} ${nodeId}`"></option>
+              </template>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Interval Node (menit): <span x-text="deepSleep.intervalSec"></span></label>
+            <input type="range" min="30" max="120" step="1" x-model.number="deepSleep.intervalSec" />
+          </div>
+          <button @click="submitDeepSleepInterval" class="btn primary small">Simpan Interval</button>
+        </div>
+
+        <!-- Bagian Aktuator -->
+        <div>
+          <h4 class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4" x-text="getUiLabel('actuator')">
+          </h4>
+          <div class="list">
+            <template x-for="actuator in actuators" :key="actuator.index">
+              <div class="item">
+                <div>
+                  <div class="title" x-text="actuator.label || getUiLabel('actuator')"></div>
+                  <div class="meta" x-text="`${getUiLabel('node')} ${actuator.nodeId}:${actuator.childId}`"></div>
+                </div>
+                <button class="btn small status-btn"
+                  :class="{ 'status-on': actuator.active, 'status-off': !actuator.active && actuator.online, 'status-offline': !actuator.online }"
+                  @click="sendActuator(actuator.index, actuator.active ? 'off' : 'on', $event.currentTarget)"
+                  :disabled="!actuator.online"
+                  x-text="actuator.online ? (actuator.active ? 'Aktif' : 'Nonaktif') : 'Offline'">
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" x-show="settingsTab === 'settings' && !showMaintenanceTab && mode !== 'mqtt'" x-transition>
+        <div class="form-group">
+          <label>Alamat Dasar Lokal</label>
+          <input type="text" placeholder="http://192.168.4.1" x-model.lazy="config.localBaseUrl" />
+        </div>
+        <div class="form-group">
+          <label>Alamat Koneksi Online</label>
+          <input type="text" placeholder="wss://..." x-model.lazy="config.mqtt.url" />
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Nama Pengguna</label><input type="text" x-model.lazy="config.mqtt.username" />
+          </div>
+          <div class="form-group"><label>Sandi</label><input type="password" x-model.lazy="config.mqtt.password" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Durasi Manual (menit): <span x-text="Math.round(config.manualDurationMs / 60000)"></span></label>
+          <input type="range" min="1" max="60" step="1" :value="Math.round(config.manualDurationMs / 60000)"
+            @input="config.manualDurationMs = $event.target.value * 60000" />
+        </div>
+      </div>
+
+      <div class="tab-panel" x-show="settingsTab === 'maintenance' && showMaintenanceTab" x-transition>
+        <div class="item">
+          <div class="form-group w-full">
+            <label>Mode Lokal Aktif</label>
+            <p class="help"
+              x-text="`Terhubung ke ${network.apMode ? (network.apSsid || 'titik akses lokal') : (network.connectedSsid || 'jaringan lokal')} pada ${network.ip || config.localBaseUrl}`">
+            </p>
+          </div>
+        </div>
+        <div class="item" x-show="showLoRaChannelUI">
+          <div class="form-group w-full">
+            <label x-text="getUiLabel('loraChannel')"></label>
+            <div class="flex flex-wrap items-center gap-3">
+              <input type="number" min="0" max="83" step="1" class="w-24" x-model.number="loraChannelSetup.value" />
+              <button type="button" class="btn primary small" @click="saveLoRaChannel()"
+                :disabled="actionInFlight">Simpan Channel</button>
+            </div>
+            <p class="help"
+              x-text="loraChannelSetup.stored ? `Tersimpan: ${loraChannelSetup.value}` : `Bawaan: ${loraChannelSetup.defaultValue}`">
+            </p>
+          </div>
+        </div>
+        <div class="item">
+          <div class="form-group w-full">
+            <div class="flex justify-between items-center mb-2">
+              <label class="m-0">Scan WiFi Tersedia</label>
+              <button type="button" class="btn ghost small" @click="loadWifiScan()" :disabled="wifiScanLoading">Pindai
+                Ulang</button>
+            </div>
+            <div class="flex gap-2 mb-3">
+              <button type="button" class="btn ghost small" :class="{ 'active': wifiScanFilter === 'all' }"
+                @click="wifiScanFilter = 'all'">Semua</button>
+              <button type="button" class="btn ghost small" :class="{ 'active': wifiScanFilter === 'secured' }"
+                @click="wifiScanFilter = 'secured'">Aman</button>
+              <button type="button" class="btn ghost small" :class="{ 'active': wifiScanFilter === 'open' }"
+                @click="wifiScanFilter = 'open'">Tanpa Sandi</button>
+            </div>
+            <p class="help mb-3"
+              x-text="wifiScanLoading ? 'Memindai jaringan WiFi...' : (wifiScanError || (wifiScanAt ? `Diperbarui ${new Date(wifiScanAt).toLocaleTimeString('id-ID')}` : 'Tekan scan untuk melihat jaringan WiFi terdekat.'))">
+            </p>
+            <div class="list" style="max-height: 18rem; overflow-y: auto;">
+              <template x-for="net in filteredWifiScanResults" :key="net.ssid + net.bssid">
+                <div class="item cursor-pointer hover:bg-white/5" @click="pickWifiNetwork(net)">
+                  <div>
+                    <div class="title" x-text="net.ssid"></div>
+                    <div class="meta flex items-center gap-2 flex-wrap">
+                      <span x-text="`RSSI ${net.rssi} dBm${net.bssid ? ` • ${net.bssid}` : ''}`"></span>
+                      <span class="tag"
+                        :class="`${(net.auth || '').toLowerCase() === 'open' ? 'badge-info' : 'badge-warn'}`"
+                        x-text="(net.auth || 'Tidak diketahui').toUpperCase()"></span>
+                    </div>
+                    <div class="flex gap-1 mt-2 items-center">
+                      <span class="inline-block h-2 w-3 rounded-full"
+                        :class="wifiSignalLevel(net.rssi) >= 1 ? 'bg-green-400' : 'bg-gray-700'"></span>
+                      <span class="inline-block h-3 w-3 rounded-full"
+                        :class="wifiSignalLevel(net.rssi) >= 2 ? 'bg-green-400' : 'bg-gray-700'"></span>
+                      <span class="inline-block h-4 w-3 rounded-full"
+                        :class="wifiSignalLevel(net.rssi) >= 3 ? 'bg-green-400' : 'bg-gray-700'"></span>
+                      <span class="inline-block h-5 w-3 rounded-full"
+                        :class="wifiSignalLevel(net.rssi) >= 4 ? 'bg-green-400' : 'bg-gray-700'"></span>
+                      <span class="text-xs text-gray-500 ml-2" x-text="wifiSignalLabel(net.rssi)"></span>
+                    </div>
+                  </div>
+                  <div class="tag">Pilih Jaringan</div>
+                </div>
+              </template>
+              <div class="item" x-show="!wifiScanLoading && filteredWifiScanResults.length === 0 && !wifiScanError">
+                <div class="meta">Tidak ada jaringan terdeteksi.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="item">
+          <div class="form-group w-full">
+            <label>Kredensial WiFi</label>
+            <input type="text" placeholder="SSID baru" x-model="wifiSetup.ssid" @input="clearWifiNetworkAuth()"
+              class="mb-2" />
+            <input type="password" placeholder="Sandi WiFi (kosongkan jika tanpa sandi)" x-model="wifiSetup.pass"
+              class="mb-3" x-ref="wifiPasswordInput" :disabled="wifiSetup.auth === 'open'"
+              :readonly="wifiSetup.auth === 'open'" :class="{ 'opacity-60': wifiSetup.auth === 'open' }" />
+            <button type="button"
+              class="text-xs text-cyan-300 hover:text-cyan-200 underline underline-offset-2 mb-3 text-left"
+              x-show="wifiSetup.auth === 'open'" @click="applyOpenWifiMode()">Mode tanpa sandi</button>
+            <p class="help mb-3">Kalau jaringan tanpa sandi, biarkan field sandi kosong. Setelah disimpan, kontroler
+              akan restart dan mencoba masuk ke jaringan baru.</p>
+            <button type="button" class="btn primary small" @click="setupGreenhouseWifi()"
+              :disabled="actionInFlight">Simpan WiFi</button>
+          </div>
+        </div>
+        <div class="item">
+          <div class="form-group w-full">
+            <label>Pembaruan Firmware</label>
+            <input type="file" accept=".bin,application/octet-stream" @change="handleFirmwareFileChange" class="mb-3" />
+            <p class="help mb-3"
+              x-text="wifiSetup.firmwareName ? `Berkas dipilih: ${wifiSetup.firmwareName}` : 'Pilih berkas firmware .bin untuk diunggah.'">
+            </p>
+            <button type="button" class="btn primary small" @click="uploadGreenhouseFirmware()"
+              :disabled="actionInFlight">Kirim Pembaruan</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button x-show="settingsTab === 'settings' && !showMaintenanceTab && mode !== 'mqtt'" @click="saveAndReconnect"
+          class="btn primary">Simpan & Sambungkan</button>
+        <button x-show="settingsTab === 'maintenance' && showMaintenanceTab" @click="showSettingsModal = false"
+          class="btn primary">Tutup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- === Modal Task === -->
+  <div x-show="showTaskModal" @keydown.escape.window="showTaskModal = false" x-transition class="modal"
+    @click.self="showTaskModal = false">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 x-text="getTaskModalTitle()"></h3>
+        <button @click="showTaskModal = false" class="modal-close">×</button>
+      </div>
+      <div class="modal-body" x-show="editingTask">
+        <div class="form-group"><label>Nama Task</label><input type="text" placeholder="Nama task"
+            x-model="editingTask.label" /></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label x-text="getUiLabel('sensor')"></label>
+            <select x-model="editingTask.sensorKey" @change="syncFixedTaskActuator()">
+              <template x-for="s in sensors">
+                <option :value="`${s.nodeId}:${s.childId}`" x-text="s.label"></option>
+              </template>
+            </select>
+          </div>
+          <div class="form-group">
+            <label x-text="getUiLabel('actuator')"></label>
+            <select x-model.number="editingTask.actuatorIndex" :disabled="isGreenhouseFixedMode">
+              <template x-for="a in actuators">
+                <option :value="a.index" x-text="a.label"></option>
+              </template>
+            </select>
+            <p class="help" x-show="isGreenhouseFixedMode">Aktuator mengikuti Node Sensor pada mode greenhouse fixed.
+            </p>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label x-text="`${getUiLabel('threshold')}: ${Number(editingTask.threshold).toFixed(1)}`"></label>
+            <input type="range" min="0" max="100" step="0.1" x-model.number="editingTask.threshold" />
+          </div>
+          <div class="form-group">
+            <label>Durasi (menit): <span x-text="editingTask.durationMinutes"></span></label>
+            <input type="range" min="1" max="60" step="1" x-model.number="editingTask.durationMinutes" />
+          </div>
+        </div>
+        <label class="checkbox-row"><input type="checkbox" x-model="editingTask.thresholdEnabled" /> Threshold
+          aktif</label>
+
+        <div class="mt-8 pt-8 border-t border-[#2a2a30]" x-show="editingTask.index >= 0">
+          <div class="flex justify-between items-center mb-4">
+            <h4 class="font-bold" x-text="getUiLabel('schedule')"></h4>
+            <button @click="openScheduleList(editingTask.index)" class="btn ghost small">Kelola</button>
+          </div>
+          <p class="text-xs text-gray-500" x-text="getScheduleSummary(editingTask)"></p>
+        </div>
+      </div>
+      <div class="modal-footer"><button @click="submitTask" class="btn primary" :disabled="actionInFlight"
+          x-text="getTaskModalSubmitLabel()"></button></div>
+    </div>
+  </div>
+
+  <!-- === Modal Kalibrasi Moisture === -->
+  <div x-show="showMoistureCalibrationModal" @keydown.escape.window="closeMoistureCalibration()" x-transition
+    class="modal calibration-layer" @click.self="closeMoistureCalibration()">
+    <div class="modal-card calibration">
+      <div class="modal-header">
+        <h3 x-text="getUiLabel('calibration')"></h3>
+        <button @click="closeMoistureCalibration()" class="modal-close">×</button>
+      </div>
+      <div class="modal-body p-6 space-y-6">
+        <div class="flex flex-col gap-2">
+          <div class="text-lg font-bold text-white" x-text="moistureCalibration.label || 'Kelembapan Tanah'"></div>
+          <div class="text-sm text-gray-400"
+            x-text="`${getUiLabel('nodeSensor')} ${moistureCalibration.nodeId}:${moistureCalibration.childId}`"></div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div class="bg-black/20 p-3 rounded-2xl border border-white/5 min-h-[96px] flex flex-col justify-center">
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Pembacaan</p>
+            <div class="flex flex-1 items-center justify-center">
+              <p class="text-3xl font-black text-white leading-none text-center"
+                x-text="formatNilaiSensor(moistureCalibration.currentValue, '%')"></p>
+            </div>
+          </div>
+          <div class="bg-black/20 p-3 rounded-2xl border border-white/5 min-h-[96px] flex flex-col justify-center">
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Pembacaan Sensor</p>
+            <div class="flex flex-1 items-center justify-center">
+              <p class="text-3xl font-black text-primary leading-none text-center"
+                x-text="formatNilaiAdc(moistureCalibration.rawValue)"></p>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 mt-5">
+          <button @click="setMoistureCalibrationPoint('dry')" class="calibration-action">
+            <span class="calibration-action-label">Nilai Kering</span>
+            <span class="calibration-action-value" x-text="formatNilaiAdc(moistureCalibration.dryValue)"></span>
+          </button>
+          <button @click="setMoistureCalibrationPoint('wet')" class="calibration-action">
+            <span class="calibration-action-label">Nilai Basah</span>
+            <span class="calibration-action-value" x-text="formatNilaiAdc(moistureCalibration.wetValue)"></span>
+          </button>
+        </div>
+
+        <div class="flex flex-col gap-2 mt-4">
+          <button @click="resetMoistureCalibration()" class="btn ghost w-full">Atur Ulang Bawaan</button>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button @click="closeMoistureCalibration()" class="btn ghost">Batal</button>
+        <button @click="saveMoistureCalibration()" class="btn primary" :disabled="actionInFlight">Simpan
+          Kalibrasi</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- === Modal Log === -->
+  <div x-show="showLogModal" @keydown.escape.window="showLogModal = false" x-transition class="modal"
+    @click.self="showLogModal = false">
+    <div class="modal-card log">
+      <div class="modal-header">
+        <h3>📋 Log Aktivitas</h3><button @click="showLogModal = false" class="modal-close">×</button>
+      </div>
+      <div class="modal-body p-8 overflow-y-auto">
+        <div class="flex gap-2 mb-6">
+          <button @click="logFilter = 'all'" class="btn small"
+            :class="logFilter === 'all' ? 'primary' : 'ghost'">Semua</button>
+          <button @click="logFilter = 'sensor'" class="btn small"
+            :class="logFilter === 'sensor' ? 'primary' : 'ghost'">Sensor</button>
+          <button @click="logFilter = 'status'" class="btn small"
+            :class="logFilter === 'status' ? 'primary' : 'ghost'">Status</button>
+        </div>
+        <div class="mb-6 rounded-2xl border border-[#2a2a30] bg-black/20 p-4">
+          <div class="flex flex-wrap gap-2 mb-3">
+            <button @click="setLogDownloadPreset(1)" class="btn small ghost" :disabled="logDownload.busy">1
+              Hari</button>
+            <button @click="setLogDownloadPreset(7)" class="btn small ghost" :disabled="logDownload.busy">7
+              Hari</button>
+            <button @click="setLogDownloadPreset(30)" class="btn small ghost" :disabled="logDownload.busy">1
+              Bulan</button>
+          </div>
+          <div class="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+            <label class="block">
+              <span class="block text-[11px] uppercase tracking-[0.18em] text-gray-500 mb-2">Dari</span>
+              <input x-model="logDownload.start" type="datetime-local"
+                class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white"
+                :disabled="logDownload.busy" />
+            </label>
+            <label class="block">
+              <span class="block text-[11px] uppercase tracking-[0.18em] text-gray-500 mb-2">Sampai</span>
+              <input x-model="logDownload.end" type="datetime-local"
+                class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white"
+                :disabled="logDownload.busy" />
+            </label>
+            <button @click="downloadSensorLogsCsv()" class="btn primary small h-fit md:mb-[2px]"
+              :disabled="logDownload.busy">Unduh CSV</button>
+          </div>
+          <div class="mt-4" x-show="logDownload.busy">
+            <div class="flex items-center justify-between text-xs text-gray-400 mb-2">
+              <span x-text="logDownload.status || 'Memproses unduhan...'"></span>
+              <span x-text="`${Math.round(logDownload.progress || 0)}%`"></span>
+            </div>
+            <div class="h-2 rounded-full bg-[#202026] overflow-hidden border border-[#2a2a30]">
+              <div class="h-full rounded-full bg-primary transition-all duration-200"
+                :style="{ width: `${Math.max(0, Math.min(100, logDownload.progress || 0))}%` }"></div>
+            </div>
+          </div>
+          <p class="mt-2 text-xs text-red-500" x-show="logDownload.error" x-text="logDownload.error"></p>
+        </div>
+        <div class="mb-6" x-show="logFilter === 'sensor'">
+          <template x-for="metric in logChartMetrics" :key="metric.key">
+            <div class="mb-6">
+              <h4 class="log-chart-title mb-3"
+                :class="getLogChartSeries(metric.key).points.length ? 'log-chart-title-has-data' : 'log-chart-title-empty'"
+                x-text="metric.label"></h4>
+              <div class="log-chart-frame">
+                <div class="log-chart-y-axis">
+                  <span
+                    x-text="formatNilaiSensor(getLogChartExtents(getLogChartSeries(metric.key)).max, metric.unit)"></span>
+                  <span
+                    x-text="formatNilaiSensor((getLogChartExtents(getLogChartSeries(metric.key)).min + getLogChartExtents(getLogChartSeries(metric.key)).max) / 2, metric.unit)"></span>
+                  <span
+                    x-text="formatNilaiSensor(getLogChartExtents(getLogChartSeries(metric.key)).min, metric.unit)"></span>
+                </div>
+                <div class="log-chart-surface" @pointermove="updateLogChartHover(metric.key, $event)"
+                  @mouseenter="updateLogChartHover(metric.key, $event)" @mouseleave="clearLogChartPoint()">
+                  <svg viewBox="0 0 100 100" class="log-chart-svg" preserveAspectRatio="none">
+                    <g class="log-chart-grid">
+                      <line x1="6" y1="20" x2="94" y2="20"></line>
+                      <line x1="6" y1="40" x2="94" y2="40"></line>
+                      <line x1="6" y1="60" x2="94" y2="60"></line>
+                      <line x1="6" y1="80" x2="94" y2="80"></line>
+                    </g>
+                    <path x-show="getLogChartSeries(metric.key).path" :d="getLogChartSeries(metric.key).path"
+                      class="log-chart-line" :class="getLogChartSeries(metric.key).lineClass"></path>
+                    <template x-for="(point, index) in getLogChartSeries(metric.key).points"
+                      :key="`${metric.key}-${point.ts}-${point.value}`">
+                      <g>
+                        <circle :cx="point.x" :cy="point.y" r="4.2" class="log-chart-point"
+                          :class="[getLogChartSeries(metric.key).lineClass, logChartActivePoint && logChartActivePoint.key === metric.key && logChartActivePoint.ts === point.ts && logChartActivePoint.value === point.value ? 'is-selected' : '']"
+                          :style="{ fill: getLogChartSeries(metric.key).color, stroke: getLogChartSeries(metric.key).color }"
+                          @mouseenter="selectLogChartPoint(getLogChartSeries(metric.key), point)"
+                          @pointerdown.stop.prevent="selectLogChartPoint(getLogChartSeries(metric.key), point)"
+                          @touchstart.stop.prevent="selectLogChartPoint(getLogChartSeries(metric.key), point)"
+                          @click.stop.prevent="selectLogChartPoint(getLogChartSeries(metric.key), point)"></circle>
+                        <circle :cx="point.x" :cy="point.y" r="1.3" fill="#ffffff" opacity="0.95"></circle>
+                      </g>
+                    </template>
+                  </svg>
+                  <div class="log-chart-x-axis"
+                    style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.25rem;padding:0 6px;margin-top:6px;font-size:10px;line-height:1.2;color:#6b7280;">
+                    <template x-for="tick in getLogChartScaleTicks(getLogChartSeries(metric.key))"
+                      :key="`${metric.key}-${tick.label}-${tick.x}`">
+                      <span
+                        :style="tick.x < 33 ? 'text-align:left' : tick.x > 66 ? 'text-align:right' : 'text-align:center'"
+                        x-text="tick.label"></span>
+                    </template>
+                  </div>
+                  <div class="log-chart-tooltip log-chart-tooltip-fixed"
+                    x-show="logChartActivePoint && logChartActivePoint.key === metric.key">
+                    <div class="log-chart-tooltip-title" x-text="logChartActivePoint ? logChartActivePoint.label : ''">
+                    </div>
+                    <div class="log-chart-tooltip-subtitle"
+                      x-text="logChartActivePoint ? formatNilaiSensor(logChartActivePoint.value, logChartActivePoint.unit) : ''">
+                    </div>
+                    <div class="log-chart-tooltip-subtitle"
+                      x-text="logChartActivePoint ? formatLogTimestamp(logChartActivePoint.ts) : ''"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="log-chart-point-hint" x-show="logChartActivePoint && logChartActivePoint.key === metric.key">
+                <span x-text="logChartActivePoint ? logChartActivePoint.label : ''"></span>
+                <span
+                  x-text="logChartActivePoint ? formatNilaiSensor(logChartActivePoint.value, logChartActivePoint.unit) : ''"></span>
+                <span x-text="logChartActivePoint ? formatLogTimestamp(logChartActivePoint.ts) : ''"></span>
+              </div>
+            </div>
+          </template>
+        </div>
+        <div class="space-y-2">
+          <template x-for="(entry, index) in filteredLogs" :key="index">
+            <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30]">
+              <div class="flex justify-between text-[10px] text-gray-500 mb-1">
+                <span x-text="getLogTypeName(entry.type)" class="font-bold text-primary"></span>
+                <span x-text="formatLogTimestamp(entry.ts)"></span>
+              </div>
+              <div class="text-xs" x-text="formatLogData(entry)"></div>
+            </div>
+          </template>
+          <p class="text-center py-8 text-gray-500" x-show="filteredLogs.length === 0">Belum ada data log.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button @click="clearLogs()" class="btn badge-danger small" :disabled="actionInFlight">Bersihkan Log</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- === Modal Info & Task === -->
+  <div x-show="showAllTasksModal" @keydown.escape.window="showAllTasksModal = false" x-transition class="modal"
+    @click.self="showAllTasksModal = false">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 x-text="selectedTaskInfo ? `Setup ${getTaskLabel(selectedTaskInfo)}` : 'Setup Task'"></h3>
+        <button @click="showAllTasksModal = false" class="modal-close">×</button>
+      </div>
+
+      <div class="modal-body">
+        <template x-if="editingTask">
+          <div class="space-y-6">
+            <div class="space-y-6">
+              <div class="form-group">
+                <label class="block text-sm font-semibold text-gray-400 mb-2">Nama Task</label>
+                <input type="text" placeholder="Nama task" x-model="editingTask.label"
+                  class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white" />
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div class="form-group">
+                  <label class="block text-sm font-semibold text-gray-400 mb-2" x-text="getUiLabel('sensor')"></label>
+                  <select x-model="editingTask.sensorKey" @change="syncFixedTaskActuator()"
+                    class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white">
+                    <template x-for="s in sensors">
+                      <option :value="`${s.nodeId}:${s.childId}`" x-text="s.label"></option>
+                    </template>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="block text-sm font-semibold text-gray-400 mb-2" x-text="getUiLabel('actuator')"></label>
+                  <select x-model.number="editingTask.actuatorIndex" :disabled="isGreenhouseFixedMode"
+                    class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white">
+                    <template x-for="a in actuators">
+                      <option :value="a.index" x-text="a.label"></option>
+                    </template>
+                  </select>
+                  <p class="help" x-show="isGreenhouseFixedMode">Aktuator terkunci mengikuti Node Sensor pada mode
+                    greenhouse fixed.</p>
+                </div>
+              </div>
+
+              <div class="space-y-8 bg-black/20 p-6 rounded-2xl border border-white/5">
+                <div class="form-group mb-0">
+                  <div class="flex justify-between items-center mb-4">
+                    <label class="text-sm font-semibold text-gray-400" x-text="getUiLabel('threshold')"></label>
+                    <span class="bg-primary/20 text-primary px-3 py-1 rounded-lg font-bold text-sm"
+                      x-text="Number(editingTask.threshold).toFixed(1)"></span>
+                  </div>
+                  <input type="range" min="0" max="100" step="0.1" x-model.number="editingTask.threshold"
+                    class="w-full accent-primary" />
+                  <div class="flex justify-between text-[10px] text-gray-600 mt-2 uppercase tracking-widest">
+                    <span>Min (0)</span>
+                    <span>Max (100)</span>
+                  </div>
+                </div>
+
+                <div class="form-group mb-0">
+                  <div class="flex justify-between items-center mb-4">
+                    <label class="text-sm font-semibold text-gray-400">Durasi (Menit)</label>
+                    <span class="bg-white/10 text-white px-3 py-1 rounded-lg font-bold text-sm"
+                      x-text="`${editingTask.durationMinutes} m`"></span>
+                  </div>
+                  <input type="range" min="1" max="60" step="1" x-model.number="editingTask.durationMinutes"
+                    class="w-full accent-white" />
+                  <div class="flex justify-between text-[10px] text-gray-600 mt-2 uppercase tracking-widest">
+                    <span>1 m</span>
+                    <span>60 m</span>
+                  </div>
+                </div>
+              </div>
+
+              <label
+                class="flex items-center gap-3 p-4 bg-[#202026] rounded-xl border border-[#2a2a30] cursor-pointer hover:bg-[#25252c] transition-colors">
+                <input type="checkbox" x-model="editingTask.thresholdEnabled" class="w-5 h-5 accent-primary" />
+                <span class="text-sm font-semibold text-gray-200">Aktifkan Otomasi Threshold</span>
+              </label>
+
+              <div class="mt-8 pt-8 border-t border-[#2a2a30]">
+                <div class="flex justify-between items-center mb-4">
+                  <h4 class="font-bold" x-text="getUiLabel('schedule')"></h4>
+                </div>
+
+                <div class="flex flex-wrap gap-3 mb-4">
+                  <!-- Jadwal yang ada sebagai tombol -->
+                  <template x-for="entry in getTaskSchedules(editingTask.index)" :key="entry.slotIndex">
+                    <button type="button" @click="openScheduleForm(entry)" class="schedule-item-btn">
+                      <div class="time" x-text="entry.pickupTime"></div>
+                      <div class="duration" x-text="`${entry.durationMinutes}m`"></div>
+                      <div class="status-dot" :class="{'active': entry.enabled}"></div>
+                    </button>
+                  </template>
+
+                  <!-- Tombol tambah jadwal -->
+                  <button type="button" @click="scheduleListTaskIndex = editingTask.index; openScheduleForm(null)"
+                    class="schedule-add-btn" x-show="getTaskSchedules(editingTask.index).length < 3">
+                    <span class="plus">+</span>
+                    <span class="label">Tambah</span>
+                  </button>
+                </div>
+
+                <p class="text-[10px] text-gray-500 italic" x-show="getTaskSchedules(editingTask.index).length === 0">
+                  Belum ada jadwal yang diatur.</p>
+                <p class="text-[10px] text-gray-500 italic" x-show="getTaskSchedules(editingTask.index).length > 0">Klik
+                  jadwal untuk mengubah.</p>
+              </div>
+
+              <div class="modal-footer px-0 pb-0">
+                <button @click="submitTask(); showAllTasksModal = false" class="btn primary w-full"
+                  :disabled="actionInFlight">Simpan Task</button>
+              </div>
+            </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- === Notifikasi Toast === -->
+  <!-- === Modal Jadwal === -->
+  <div x-show="showScheduleModal" @keydown.escape.window="showScheduleModal = false" x-transition class="modal"
+    style="z-index: 3000;" @click.self="showScheduleModal = false">
+    <div class="modal-card max-w-sm">
+      <div class="modal-header">
+        <h3
+          x-text="editingSchedule && editingSchedule.slotIndex >= 0 ? 'Ubah ' + getUiLabel('schedule') : 'Tambah ' + getUiLabel('schedule')">
+        </h3>
+        <button @click="showScheduleModal = false" class="modal-close">×</button>
+      </div>
+      <div class="modal-body p-8" x-show="editingSchedule">
+        <div class="form-group"><label>Waktu (24 Jam)</label><input type="time" step="60"
+            x-model="editingSchedule.pickupTime" /></div>
+        <div class="form-group"><label>Durasi (menit): <span
+              x-text="editingSchedule.durationMinutes"></span></label><input type="range" min="1" max="60" step="1"
+            x-model.number="editingSchedule.durationMinutes" /></div>
+        <label class="checkbox-row"><input type="checkbox" x-model="editingSchedule.enabled" /> Aktif</label>
+      </div>
+      <div class="modal-footer" x-show="editingSchedule">
+        <button x-show="editingSchedule && editingSchedule.slotIndex >= 0"
+          @click="deleteSchedule(editingSchedule.taskIndex, editingSchedule.slotIndex, $event.currentTarget); showScheduleModal = false"
+          class="btn badge-danger small mr-auto">Hapus</button>
+        <button @click="submitSchedule" class="btn primary">Simpan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- === Modal Konfirmasi Hapus === -->
+  <div x-show="showDeleteConfirm" @keydown.escape.window="showDeleteConfirm = false" x-transition class="modal"
+    style="z-index: 4000;" @click.self="showDeleteConfirm = false">
+    <div class="modal-card max-w-sm">
+      <div class="modal-header">
+        <h3>Konfirmasi Hapus</h3>
+        <button @click="showDeleteConfirm = false" class="modal-close">×</button>
+      </div>
+      <div class="modal-body p-8 text-center">
+        <p class="text-gray-300 mb-4">Apakah Anda yakin ingin menghapus task ini?</p>
+        <p class="text-white font-bold text-lg" x-text="taskToDelete?.label"></p>
+      </div>
+      <div class="modal-footer">
+        <button @click.stop="showDeleteConfirm = false" class="btn ghost">Batal</button>
+        <button x-show="allowTaskDelete" @click.stop="confirmDelete" class="btn badge-danger"
+          :disabled="actionInFlight">Ya, Hapus</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" x-show="toast.visible" x-text="toast.message"
+    :style="{ borderColor: toast.type === 'error' ? '#ff6b6b' : '#25f4b8' }" x-transition></div>
+
+  <script src="mqtt.min.js"></script>
+  <script src="alpine.min.js" defer></script>
+  <script src="app.js"></script>
+</body>
+
+</html>

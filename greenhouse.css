@@ -1,0 +1,75 @@
+/* Greenhouse Dashboard Styles */
+.gh-root {
+  background: #0f172a;
+  border-radius: 1.5rem;
+  padding: 2rem;
+  color: #f8fafc;
+  border: 1px solid #1e293b;
+}
+
+.gh-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.gh-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+}
+
+.gh-card {
+  background: #1e293b;
+  padding: 1.5rem;
+  border-radius: 1rem;
+  border: 1px solid #334155;
+}
+
+.gh-card h4 {
+  margin: 0 0 1rem 0;
+  font-size: 0.875rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.gh-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #25f4b8;
+}
+
+.gh-unit {
+  font-size: 1rem;
+  color: #64748b;
+  margin-left: 0.25rem;
+}
+
+.gh-controls {
+  margin-top: 2rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.gh-btn {
+  background: #334155;
+  border: none;
+  color: white;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.gh-btn.active {
+  background: #25f4b8;
+  color: #0f172a;
+}
+
+.gh-btn:hover:not(.active) {
+  background: #475569;
+}
