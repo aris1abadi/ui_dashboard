@@ -699,6 +699,10 @@
           Credential MQTT belum tersimpan di browser ini. Isi sekali, lalu aplikasi akan memakainya otomatis di
           koneksi berikutnya.
         </p>
+        <div class="rounded-xl border border-[#2a2a30] bg-black/20 p-3 mb-4">
+          <div class="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Status simpan</div>
+          <div class="text-sm font-semibold text-white" x-text="mqttCredentialStorageSummary"></div>
+        </div>
         <div class="form-group">
           <label>Username MQTT</label>
           <input type="text" placeholder="Username broker" x-model="mqttCredentialForm.username"

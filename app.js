@@ -16,6 +16,8 @@ const defaults = {
 };
 const loginSessionKey = 'karjo_ui_authenticated';
 const mqttCredentialSavedKey = 'karjo_ui_mqtt_credentials_saved';
+const mqttCredentialUsernameKey = 'karjo_ui_mqtt_username';
+const mqttCredentialPasswordKey = 'karjo_ui_mqtt_password';
 const loginCredentials = { username: 'admin', password: 'admin123' };
 const LOCAL_PROBE_WINDOW_MS = 15000;
 const LOCAL_PROBE_INTERVAL_MS = 3000;
@@ -58,6 +60,22 @@ function normalizeConnectionPreference(v) {
 }
 function isLegacySharedMqttCredential(username, password) {
   return `${username || ''}`.trim() === LEGACY_MQTT_USERNAME && `${password || ''}`.trim() === LEGACY_MQTT_PASSWORD;
+}
+function readStoredMqttCredentials() {
+  return {
+    username: `${localStorage.getItem(mqttCredentialUsernameKey) || ''}`.trim(),
+    password: `${localStorage.getItem(mqttCredentialPasswordKey) || ''}`.trim()
+  };
+}
+function writeStoredMqttCredentials(username, password) {
+  localStorage.setItem(mqttCredentialUsernameKey, `${username || ''}`.trim());
+  localStorage.setItem(mqttCredentialPasswordKey, `${password || ''}`.trim());
+  localStorage.setItem(mqttCredentialSavedKey, '1');
+}
+function clearStoredMqttCredentials() {
+  localStorage.removeItem(mqttCredentialUsernameKey);
+  localStorage.removeItem(mqttCredentialPasswordKey);
+  localStorage.removeItem(mqttCredentialSavedKey);
 }
 function isMqttAuthError(error) {
   const message = `${error?.message || error || ''}`.trim().toLowerCase();
@@ -697,6 +715,18 @@ function app() {
       const password = `${this.config?.mqtt?.password || ''}`.trim();
       return this.mqttCredentialsStored && !!username && !!password && !isLegacySharedMqttCredential(username, password);
     },
+    get mqttCredentialStorageSummary() {
+      if (!this.hasStoredMqttCredentials) {
+        return 'Belum tersimpan di browser ini';
+      }
+      return `Tersimpan di localStorage sebagai ${mqttCredentialUsernameKey} dan ${mqttCredentialPasswordKey}`;
+    },
+    getEffectiveMqttCredentials() {
+      const stored = readStoredMqttCredentials();
+      const username = stored.username || `${this.config?.mqtt?.username || ''}`.trim();
+      const password = stored.password || `${this.config?.mqtt?.password || ''}`.trim();
+      return { username, password };
+    },
 
     // Metode
     init() { 
@@ -718,6 +748,9 @@ function app() {
       const kontrolIds = normalizeKontrolIdList(parsed?.kontrolIds, mqttKontrolId); 
       const parsedMqtt = parsed.mqtt || {};
       const legacyCredential = isLegacySharedMqttCredential(parsedMqtt.username, parsedMqtt.password);
+      const storedCredential = readStoredMqttCredentials();
+      const storedUsername = storedCredential.username || `${parsedMqtt.username || ''}`.trim();
+      const storedPassword = storedCredential.password || `${parsedMqtt.password || ''}`.trim();
       this.config = { 
         ...defaults, 
         ...parsed, 
@@ -726,18 +759,22 @@ function app() {
         mqtt: {
           ...defaults.mqtt,
           ...parsedMqtt,
-          username: legacyCredential ? '' : `${parsedMqtt.username || ''}`.trim(),
-          password: legacyCredential ? '' : `${parsedMqtt.password || ''}`.trim(),
+          username: legacyCredential ? '' : storedUsername,
+          password: legacyCredential ? '' : storedPassword,
           kontrolId: mqttKontrolId
         }
       }; 
       this.mqttCredentialsStored = !!this.config.mqtt.username && !!this.config.mqtt.password && !legacyCredential;
       if (legacyCredential) {
         this.mqttCredentialsStored = false;
-        localStorage.removeItem(mqttCredentialSavedKey);
+        clearStoredMqttCredentials();
         this.saveConfig();
       } else {
-        localStorage.setItem(mqttCredentialSavedKey, this.mqttCredentialsStored ? '1' : '0');
+        if (this.mqttCredentialsStored) {
+          writeStoredMqttCredentials(this.config.mqtt.username, this.config.mqtt.password);
+        } else {
+          clearStoredMqttCredentials();
+        }
       }
       this.pendingKontrolId = mqttKontrolId; 
       this.login.kontrolId = mqttKontrolId || kontrolIds[0]; 
@@ -844,7 +881,7 @@ function app() {
         this.config.mqtt.username = username;
         this.config.mqtt.password = password;
         this.mqttCredentialsStored = true;
-        localStorage.setItem(mqttCredentialSavedKey, '1');
+        writeStoredMqttCredentials(username, password);
         this.saveConfig();
         this.mqttCredentialPendingConnect = true;
         this.mqttConnectFailureHandled = false;
@@ -1025,11 +1062,19 @@ function app() {
         this.connected = false;
         return this.showToast('Alamat koneksi online belum diisi.', 'error');
       }
-      if (!this.hasStoredMqttCredentials) {
+      const mqttCredentials = this.getEffectiveMqttCredentials();
+      const hasCredential = !!mqttCredentials.username && !!mqttCredentials.password && !isLegacySharedMqttCredential(mqttCredentials.username, mqttCredentials.password);
+      if (!hasCredential) {
+        this.mqttCredentialsStored = false;
+        clearStoredMqttCredentials();
         this.mqttCredentialPendingConnect = true;
         this.openMqttCredentialModal();
         return;
       }
+      this.config.mqtt.username = mqttCredentials.username;
+      this.config.mqtt.password = mqttCredentials.password;
+      this.mqttCredentialsStored = true;
+      writeStoredMqttCredentials(mqttCredentials.username, mqttCredentials.password);
       if (this.settingsTab === 'maintenance') {
         this.settingsTab = 'settings';
       }
