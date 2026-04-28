@@ -15,6 +15,7 @@ const defaults = {
   }
 };
 const loginSessionKey = 'karjo_ui_authenticated';
+const mqttCredentialSavedKey = 'karjo_ui_mqtt_credentials_saved';
 const loginCredentials = { username: 'admin', password: 'admin123' };
 const LOCAL_PROBE_WINDOW_MS = 15000;
 const LOCAL_PROBE_INTERVAL_MS = 3000;
@@ -25,6 +26,16 @@ const LOCAL_FALLBACK_AFTER_MS = 20000;
   const LORA_CHANNEL_MAX = 83;
 const LEGACY_MQTT_USERNAME = 'abadinet';
 const LEGACY_MQTT_PASSWORD = 'abadinet123';
+const MQTT_AUTH_ERROR_PATTERNS = [
+  'not authorized',
+  'unauthorized',
+  'authorization failed',
+  'bad username or password',
+  'invalid username or password',
+  'connack 4',
+  'connack 5',
+  'connection refused: not authorized'
+];
 
 // --- FUNGSI BANTUAN MURNI ---
 function normalizeKontrolId(v) { return `${v || ''}`.trim(); }
@@ -47,6 +58,11 @@ function normalizeConnectionPreference(v) {
 }
 function isLegacySharedMqttCredential(username, password) {
   return `${username || ''}`.trim() === LEGACY_MQTT_USERNAME && `${password || ''}`.trim() === LEGACY_MQTT_PASSWORD;
+}
+function isMqttAuthError(error) {
+  const message = `${error?.message || error || ''}`.trim().toLowerCase();
+  if (!message) return false;
+  return MQTT_AUTH_ERROR_PATTERNS.some(pattern => message.includes(pattern));
 }
 function toNumber(v, fb = 0) { const n = Number(v); return Number.isFinite(n) ? n : fb; }
 function toBool(v) { return v === true || v === '1' || v === 1; }
@@ -253,6 +269,11 @@ function app() {
     pwaInstallPrompt: null, pwaInstalled: false,
     showMqttCredentialModal: false,
     mqttCredentialPendingConnect: false,
+    mqttConnectAttemptId: 0,
+    mqttConnectTimer: null,
+    mqttConnectFailureHandled: false,
+    mqttPendingConnectError: null,
+    mqttCredentialsStored: localStorage.getItem(mqttCredentialSavedKey) === '1',
     mqttCredentialForm: { username: '', password: '', error: '', showPassword: false },
     // State UI
     showSettingsModal: false, showTaskModal: false, showScheduleModal: false, showScheduleListModal: false, showLogModal: false, showLoginKontrolModal: false, showAllTasksModal: false, showDeleteConfirm: false, settingsTab: 'status', toast: { visible: false, message: '', type: 'info', timer: null },
@@ -674,7 +695,7 @@ function app() {
     get hasStoredMqttCredentials() {
       const username = `${this.config?.mqtt?.username || ''}`.trim();
       const password = `${this.config?.mqtt?.password || ''}`.trim();
-      return !!username && !!password && !isLegacySharedMqttCredential(username, password);
+      return this.mqttCredentialsStored && !!username && !!password && !isLegacySharedMqttCredential(username, password);
     },
 
     // Metode
@@ -710,7 +731,14 @@ function app() {
           kontrolId: mqttKontrolId
         }
       }; 
-      if (legacyCredential) this.saveConfig();
+      this.mqttCredentialsStored = !!this.config.mqtt.username && !!this.config.mqtt.password && !legacyCredential;
+      if (legacyCredential) {
+        this.mqttCredentialsStored = false;
+        localStorage.removeItem(mqttCredentialSavedKey);
+        this.saveConfig();
+      } else {
+        localStorage.setItem(mqttCredentialSavedKey, this.mqttCredentialsStored ? '1' : '0');
+      }
       this.pendingKontrolId = mqttKontrolId; 
       this.login.kontrolId = mqttKontrolId || kontrolIds[0]; 
       this.lastLoginKontrolSelection = this.login.kontrolId; 
@@ -757,10 +785,10 @@ function app() {
         body.style.backgroundImage = 'none';
       }
     },
-    openMqttCredentialModal() {
+    openMqttCredentialModal(message = '') {
       this.mqttCredentialForm.username = `${this.config?.mqtt?.username || ''}`.trim();
       this.mqttCredentialForm.password = `${this.config?.mqtt?.password || ''}`.trim();
-      this.mqttCredentialForm.error = '';
+      this.mqttCredentialForm.error = message;
       this.mqttCredentialForm.showPassword = false;
       this.mode = 'offline';
       this.connected = false;
@@ -778,6 +806,33 @@ function app() {
       }
       this.connected = false;
     },
+    clearMqttConnectTimer() {
+      if (this.mqttConnectTimer) {
+        clearTimeout(this.mqttConnectTimer);
+        this.mqttConnectTimer = null;
+      }
+    },
+    handleMqttConnectFailure(error) {
+      if (this.mqttConnectFailureHandled) return;
+      this.mqttConnectFailureHandled = true;
+      const authError = isMqttAuthError(error);
+      const message = authError
+        ? 'Credential MQTT ditolak. Periksa username dan password.'
+        : 'MQTT gagal tersambung. Periksa alamat broker atau jaringan.';
+      this.clearMqttConnectTimer();
+      if (this.mqttClient) {
+        this.mqttClient.end(true);
+        this.mqttClient = null;
+      }
+      this.mode = 'offline';
+      this.connected = false;
+      this.mqttCredentialPendingConnect = false;
+      this.mqttPendingConnectError = null;
+      this.showToast(message, 'error');
+      if (authError) {
+        this.openMqttCredentialModal('Credential MQTT tidak valid.');
+      }
+    },
     submitMqttCredentialModal() {
       const username = `${this.mqttCredentialForm.username || ''}`.trim();
       const password = `${this.mqttCredentialForm.password || ''}`.trim();
@@ -787,15 +842,17 @@ function app() {
       }
       this.config.mqtt.username = username;
       this.config.mqtt.password = password;
+      this.mqttCredentialsStored = true;
+      localStorage.setItem(mqttCredentialSavedKey, '1');
       this.saveConfig();
       this.mqttCredentialPendingConnect = true;
       this.closeMqttCredentialModal({ keepPendingConnect: true });
-      this.$nextTick(() => {
+      setTimeout(() => {
         if (this.mqttCredentialPendingConnect) {
           this.mqttCredentialPendingConnect = false;
           this.startPreferredConnection();
         }
-      });
+      }, 0);
     },
     setupPwaHooks() {
       window.addEventListener('beforeinstallprompt', (event) => {
@@ -950,6 +1007,8 @@ function app() {
     },
     connectMqtt() {
       this.stopKaConnections();
+      this.mqttConnectFailureHandled = false;
+      this.mqttPendingConnectError = null;
       if (!this.config.mqtt.url) {
         this.mode = 'offline';
         this.connected = false;
@@ -976,9 +1035,18 @@ function app() {
       this.mqttClient = mqtt.connect(this.config.mqtt.url, opts);
       this.connected = false;
       this.mode = 'detecting';
+      const attemptId = ++this.mqttConnectAttemptId;
+      this.clearMqttConnectTimer();
+      this.mqttConnectTimer = setTimeout(() => {
+        if (this.mqttConnectAttemptId !== attemptId || this.mode !== 'detecting' || this.connected) return;
+        this.handleMqttConnectFailure(this.mqttPendingConnectError || new Error('MQTT connection timeout'));
+      }, 12000);
       this.mqttClient.on('connect', () => {
+        if (this.mqttConnectAttemptId !== attemptId) return;
+        this.clearMqttConnectTimer();
         this.connected = true;
         this.mode = 'mqtt';
+        this.mqttPendingConnectError = null;
         const topic = `abadinet-out/${this.config.mqtt.kontrolId}/#`;
         this.mqttClient.subscribe(topic);
         this.publishCommand({ cmd: 'getAll' });
@@ -986,12 +1054,20 @@ function app() {
       });
       this.mqttClient.on('message', (topic, message) => this.handleMqttMessage(topic, message.toString()));
       this.mqttClient.on('close', () => {
+        if (this.mqttConnectAttemptId !== attemptId) return;
         if (this.mode === 'mqtt') {
           this.connected = false;
+          this.clearMqttConnectTimer();
+        } else if (this.mode === 'detecting' && !this.connected) {
+          this.handleMqttConnectFailure(this.mqttPendingConnectError || new Error('MQTT connection closed'));
         }
       });
-      this.mqttClient.on('error', () => {
-        if (this.mode === 'mqtt') {
+      this.mqttClient.on('error', (error) => {
+        if (this.mqttConnectAttemptId !== attemptId) return;
+        this.mqttPendingConnectError = error || this.mqttPendingConnectError;
+        if (isMqttAuthError(error)) {
+          this.handleMqttConnectFailure(error);
+        } else if (this.mode === 'mqtt') {
           this.connected = false;
         }
       });
@@ -1068,6 +1144,7 @@ function app() {
       this.clearDistanceCalibrationPolling();
       this.clearFuelCalibrationPolling();
       this.clearConnectionTimers();
+      this.clearMqttConnectTimer();
       this.localPollingPaused = false;
       this.localFallbackNotified = false;
       if (this.mqttClient) {
@@ -1076,6 +1153,7 @@ function app() {
       }
       this.connected = false;
       this.mode = 'offline';
+      this.mqttPendingConnectError = null;
     },
 
     // Data & aksi API
