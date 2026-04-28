@@ -22,11 +22,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((key) => key !== CACHE_NAME)
-          .map((key) => caches.delete(key))
-      )
+      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
     )
   );
   self.clients.claim();
@@ -34,11 +30,7 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-
-  if (request.method !== 'GET') {
-    return;
-  }
-
+  if (request.method !== 'GET') return;
   const url = new URL(request.url);
 
   if (request.mode === 'navigate') {
@@ -49,10 +41,7 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put('./index.html', responseClone));
           return response;
         })
-        .catch(async () => {
-          const cached = await caches.match('./index.html');
-          return cached || caches.match('./offline.html');
-        })
+        .catch(async () => (await caches.match('./index.html')) || caches.match('./offline.html'))
     );
     return;
   }
@@ -60,9 +49,7 @@ self.addEventListener('fetch', (event) => {
   if (url.origin === self.location.origin) {
     event.respondWith(
       caches.match(request).then((cachedResponse) => {
-        if (cachedResponse) {
-          return cachedResponse;
-        }
+        if (cachedResponse) return cachedResponse;
         return fetch(request)
           .then((response) => {
             if (response && response.status === 200 && response.type === 'basic') {
