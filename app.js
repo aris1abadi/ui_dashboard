@@ -830,29 +830,42 @@ function app() {
       this.mqttPendingConnectError = null;
       this.showToast(message, 'error');
       if (authError) {
-        this.openMqttCredentialModal('Credential MQTT tidak valid.');
+        setTimeout(() => {
+          if (!this.connected && this.mode !== 'mqtt') {
+            this.openMqttCredentialModal('Credential MQTT tidak valid.');
+          }
+        }, 900);
       }
     },
     submitMqttCredentialModal() {
-      const username = `${this.mqttCredentialForm.username || ''}`.trim();
-      const password = `${this.mqttCredentialForm.password || ''}`.trim();
-      if (!username || !password) {
-        this.mqttCredentialForm.error = 'Username dan password MQTT wajib diisi.';
-        return;
-      }
-      this.config.mqtt.username = username;
-      this.config.mqtt.password = password;
-      this.mqttCredentialsStored = true;
-      localStorage.setItem(mqttCredentialSavedKey, '1');
-      this.saveConfig();
-      this.mqttCredentialPendingConnect = true;
-      this.closeMqttCredentialModal({ keepPendingConnect: true });
-      setTimeout(() => {
-        if (this.mqttCredentialPendingConnect) {
-          this.mqttCredentialPendingConnect = false;
-          this.startPreferredConnection();
+      try {
+        const username = `${this.mqttCredentialForm.username || ''}`.trim();
+        const password = `${this.mqttCredentialForm.password || ''}`.trim();
+        if (!username || !password) {
+          this.mqttCredentialForm.error = 'Username dan password MQTT wajib diisi.';
+          return;
         }
-      }, 0);
+        this.config.mqtt.username = username;
+        this.config.mqtt.password = password;
+        this.mqttCredentialsStored = true;
+        localStorage.setItem(mqttCredentialSavedKey, '1');
+        this.saveConfig();
+        this.mqttCredentialPendingConnect = true;
+        this.closeMqttCredentialModal({ keepPendingConnect: true });
+        this.showToast('Credential MQTT disimpan. Menyambungkan...', 'info');
+        setTimeout(() => {
+          if (this.mqttCredentialPendingConnect) {
+            this.mqttCredentialPendingConnect = false;
+            this.startPreferredConnection();
+          }
+        }, 80);
+      } catch (error) {
+        this.mqttCredentialPendingConnect = false;
+        this.connected = false;
+        this.mode = 'offline';
+        this.mqttCredentialForm.error = 'Gagal menyimpan credential MQTT.';
+        this.showToast('Gagal menyimpan credential MQTT.', 'error');
+      }
     },
     setupPwaHooks() {
       window.addEventListener('beforeinstallprompt', (event) => {

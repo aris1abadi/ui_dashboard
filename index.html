@@ -691,7 +691,7 @@
     <div class="modal-card credential">
       <div class="modal-header">
         <h3>Masukkan Kredensial MQTT</h3>
-        <button @click="closeMqttCredentialModal()" class="modal-close">×</button>
+        <button type="button" @click="closeMqttCredentialModal()" class="modal-close">×</button>
       </div>
       <div class="modal-body p-8">
         <p class="text-sm text-gray-400 mb-4 leading-relaxed">
@@ -722,8 +722,9 @@
         </p>
       </div>
       <div class="modal-footer credential-footer">
-        <button @click="closeMqttCredentialModal()" class="btn ghost">Batal</button>
-        <button @click="submitMqttCredentialModal()" class="btn primary">Simpan & Sambungkan</button>
+        <button type="button" @click="closeMqttCredentialModal()" class="btn ghost">Batal</button>
+        <button type="button" @click.prevent="submitMqttCredentialModal()" class="btn primary">Simpan &
+          Sambungkan</button>
       </div>
     </div>
   </div>
