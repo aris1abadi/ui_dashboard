@@ -678,6 +678,10 @@
       </div>
 
       <div class="modal-footer">
+        <button type="button" onclick="window.resetUiCache && window.resetUiCache()" class="btn ghost"
+          :disabled="actionInFlight">
+          Reset Cache App
+        </button>
         <button x-show="settingsTab === 'settings' && !showMaintenanceTab && mode !== 'mqtt'" @click="saveAndReconnect"
           class="btn primary">Simpan & Sambungkan</button>
         <button x-show="settingsTab === 'maintenance' && showMaintenanceTab" @click="showSettingsModal = false"
@@ -1165,6 +1169,25 @@
   <script src="alpine.min.js" defer></script>
   <script src="app.js"></script>
   <script>
+    window.resetUiCache = async function () {
+      if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
+      try {
+        if ('serviceWorker' in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map((registration) => registration.unregister()));
+        }
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((key) => caches.delete(key)));
+        }
+        localStorage.removeItem('karjo_ui_mqtt_credentials_saved');
+        localStorage.removeItem('karjo_ui_mqtt_username');
+        localStorage.removeItem('karjo_ui_mqtt_password');
+        location.reload();
+      } catch (error) {
+        alert('Gagal menghapus cache aplikasi.');
+      }
+    };
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js').catch(() => {

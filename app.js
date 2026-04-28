@@ -693,7 +693,7 @@ function app() {
     get hasStoredMqttCredentials() {
       const username = `${this.config?.mqtt?.username || ''}`.trim();
       const password = `${this.config?.mqtt?.password || ''}`.trim();
-      return !!username && !!password && !isLegacySharedMqttCredential(username, password);
+      return !!username && !!password;
     },
     get mqttCredentialStorageSummary() {
       if (!this.hasStoredMqttCredentials) {
@@ -725,7 +725,6 @@ function app() {
       const mqttKontrolId = normalizeKontrolId(parsed?.mqtt?.kontrolId) || defaults.mqtt.kontrolId; 
       const kontrolIds = normalizeKontrolIdList(parsed?.kontrolIds, mqttKontrolId); 
       const parsedMqtt = parsed.mqtt || {};
-      const legacyCredential = isLegacySharedMqttCredential(parsedMqtt.username, parsedMqtt.password);
       this.config = { 
         ...defaults, 
         ...parsed, 
@@ -734,16 +733,11 @@ function app() {
         mqtt: {
           ...defaults.mqtt,
           ...parsedMqtt,
-          username: legacyCredential ? '' : `${parsedMqtt.username || ''}`.trim(),
-          password: legacyCredential ? '' : `${parsedMqtt.password || ''}`.trim(),
+          username: `${parsedMqtt.username || ''}`.trim(),
+          password: `${parsedMqtt.password || ''}`.trim(),
           kontrolId: mqttKontrolId
         }
       }; 
-      if (legacyCredential) {
-        this.config.mqtt.username = '';
-        this.config.mqtt.password = '';
-        this.saveConfig();
-      }
       this.pendingKontrolId = mqttKontrolId; 
       this.login.kontrolId = mqttKontrolId || kontrolIds[0]; 
       this.lastLoginKontrolSelection = this.login.kontrolId; 
@@ -853,6 +847,7 @@ function app() {
         this.mqttCredentialPendingConnect = true;
         this.mqttConnectFailureHandled = false;
         this.mqttPendingConnectError = null;
+        this.showMqttCredentialModal = false;
         this.closeMqttCredentialModal({ keepPendingConnect: true });
         this.showToast('Credential MQTT disimpan. Menyambungkan...', 'info');
         setTimeout(() => {
@@ -907,6 +902,23 @@ function app() {
         }
       } catch {
         this.showToast('Gagal membuka dialog pemasangan.', 'error');
+      }
+    },
+    async resetAppCache() {
+      if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
+      try {
+        if ('serviceWorker' in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map(registration => registration.unregister()));
+        }
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map(key => caches.delete(key)));
+        }
+        this.showToast('Cache aplikasi dihapus. Memuat ulang...', 'info');
+        setTimeout(() => window.location.reload(true), 500);
+      } catch (error) {
+        this.showToast('Gagal menghapus cache aplikasi.', 'error');
       }
     },
 
@@ -1033,7 +1045,7 @@ function app() {
         username: `${this.config?.mqtt?.username || ''}`.trim(),
         password: `${this.config?.mqtt?.password || ''}`.trim()
       };
-      const hasCredential = !!mqttCredentials.username && !!mqttCredentials.password && !isLegacySharedMqttCredential(mqttCredentials.username, mqttCredentials.password);
+      const hasCredential = !!mqttCredentials.username && !!mqttCredentials.password;
       if (!hasCredential) {
         this.mqttCredentialPendingConnect = true;
         this.openMqttCredentialModal();
@@ -1042,6 +1054,7 @@ function app() {
       this.config.mqtt.username = mqttCredentials.username;
       this.config.mqtt.password = mqttCredentials.password;
       this.saveConfig();
+      this.showMqttCredentialModal = false;
       if (this.settingsTab === 'maintenance') {
         this.settingsTab = 'settings';
       }
@@ -1067,6 +1080,8 @@ function app() {
       this.mqttClient.on('connect', () => {
         if (this.mqttConnectAttemptId !== attemptId) return;
         this.clearMqttConnectTimer();
+        this.showMqttCredentialModal = false;
+        this.mqttCredentialPendingConnect = false;
         this.connected = true;
         this.mode = 'mqtt';
         this.mqttPendingConnectError = null;
