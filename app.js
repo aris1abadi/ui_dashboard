@@ -830,11 +830,7 @@ function app() {
       this.mqttPendingConnectError = null;
       this.showToast(message, 'error');
       if (authError) {
-        setTimeout(() => {
-          if (!this.connected && this.mode !== 'mqtt') {
-            this.openMqttCredentialModal('Credential MQTT tidak valid.');
-          }
-        }, 900);
+        this.mqttCredentialForm.error = 'Credential MQTT tidak valid.';
       }
     },
     submitMqttCredentialModal() {
@@ -851,6 +847,8 @@ function app() {
         localStorage.setItem(mqttCredentialSavedKey, '1');
         this.saveConfig();
         this.mqttCredentialPendingConnect = true;
+        this.mqttConnectFailureHandled = false;
+        this.mqttPendingConnectError = null;
         this.closeMqttCredentialModal({ keepPendingConnect: true });
         this.showToast('Credential MQTT disimpan. Menyambungkan...', 'info');
         setTimeout(() => {
