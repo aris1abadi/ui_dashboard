@@ -252,6 +252,7 @@ function app() {
     taskPage: 0, tasksPerPage: 4,
     pwaInstallPrompt: null, pwaInstalled: false,
     showMqttCredentialModal: false,
+    mqttCredentialPendingConnect: false,
     mqttCredentialForm: { username: '', password: '', error: '', showPassword: false },
     // State UI
     showSettingsModal: false, showTaskModal: false, showScheduleModal: false, showScheduleListModal: false, showLogModal: false, showLoginKontrolModal: false, showAllTasksModal: false, showDeleteConfirm: false, settingsTab: 'status', toast: { visible: false, message: '', type: 'info', timer: null },
@@ -761,12 +762,21 @@ function app() {
       this.mqttCredentialForm.password = `${this.config?.mqtt?.password || ''}`.trim();
       this.mqttCredentialForm.error = '';
       this.mqttCredentialForm.showPassword = false;
+      this.mode = 'offline';
+      this.connected = false;
       this.showMqttCredentialModal = true;
     },
-    closeMqttCredentialModal() {
+    closeMqttCredentialModal({ keepPendingConnect = false } = {}) {
       this.showMqttCredentialModal = false;
+      if (!keepPendingConnect) {
+        this.mqttCredentialPendingConnect = false;
+      }
       this.mqttCredentialForm.error = '';
       this.mqttCredentialForm.showPassword = false;
+      if (this.mode === 'detecting') {
+        this.mode = 'offline';
+      }
+      this.connected = false;
     },
     submitMqttCredentialModal() {
       const username = `${this.mqttCredentialForm.username || ''}`.trim();
@@ -778,8 +788,14 @@ function app() {
       this.config.mqtt.username = username;
       this.config.mqtt.password = password;
       this.saveConfig();
-      this.closeMqttCredentialModal();
-      this.startPreferredConnection();
+      this.mqttCredentialPendingConnect = true;
+      this.closeMqttCredentialModal({ keepPendingConnect: true });
+      this.$nextTick(() => {
+        if (this.mqttCredentialPendingConnect) {
+          this.mqttCredentialPendingConnect = false;
+          this.startPreferredConnection();
+        }
+      });
     },
     setupPwaHooks() {
       window.addEventListener('beforeinstallprompt', (event) => {
@@ -940,6 +956,7 @@ function app() {
         return this.showToast('Alamat koneksi online belum diisi.', 'error');
       }
       if (!this.hasStoredMqttCredentials) {
+        this.mqttCredentialPendingConnect = true;
         this.openMqttCredentialModal();
         return;
       }
