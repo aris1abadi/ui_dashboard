@@ -245,6 +245,7 @@ function app() {
     backgroundImage: localStorage.getItem('karjo_ui_bg') || '',
     loadingTaskIndex: null, selectedTaskInfo: null,
     taskPage: 0, tasksPerPage: 4,
+    pwaInstallPrompt: null, pwaInstalled: false,
     // State UI
     showSettingsModal: false, showTaskModal: false, showScheduleModal: false, showScheduleListModal: false, showLogModal: false, showLoginKontrolModal: false, showAllTasksModal: false, showDeleteConfirm: false, settingsTab: 'status', toast: { visible: false, message: '', type: 'info', timer: null },
     login: { username: '', password: '', kontrolId: '', error: '', newKontrolId: '', newKontrolAlias: '', newKontrolIdError: '', showPassword: false }, lastLoginKontrolSelection: null,
@@ -656,12 +657,19 @@ function app() {
       if (this.wifiScanFilter === 'secured') return this.wifiScanResults.filter(item => `${item.auth || ''}`.toLowerCase() !== 'open');
       return this.wifiScanResults;
     },
+    get isStandalonePwa() {
+      return window.matchMedia?.('(display-mode: standalone)')?.matches || window.navigator.standalone === true;
+    },
+    get canInstallPwa() {
+      return !!this.pwaInstallPrompt && !this.isStandalonePwa && !this.pwaInstalled;
+    },
 
     // Metode
     init() { 
       this.loadConfig(); 
       this.ensureUiId(); 
       this.initAuthState(); 
+      this.setupPwaHooks();
       const savedTheme = localStorage.getItem('karjo_ui_theme') || 'dark'; 
       this.theme = savedTheme; 
       this.applyTheme(savedTheme); 
@@ -725,6 +733,46 @@ function app() {
         body.style.backgroundRepeat = 'no-repeat';
       } else {
         body.style.backgroundImage = 'none';
+      }
+    },
+    setupPwaHooks() {
+      window.addEventListener('beforeinstallprompt', (event) => {
+        event.preventDefault();
+        this.pwaInstallPrompt = event;
+      });
+      window.addEventListener('appinstalled', () => {
+        this.pwaInstallPrompt = null;
+        this.pwaInstalled = true;
+        this.showToast('Aplikasi berhasil dipasang.');
+      });
+      const media = window.matchMedia?.('(display-mode: standalone)');
+      if (media?.addEventListener) {
+        media.addEventListener('change', () => {
+          if (media.matches) {
+            this.pwaInstallPrompt = null;
+            this.pwaInstalled = true;
+          }
+        });
+      }
+    },
+    async installPwa() {
+      if (!this.pwaInstallPrompt) {
+        this.showToast('Pemasangan tidak tersedia di browser ini.', 'error');
+        return;
+      }
+      const promptEvent = this.pwaInstallPrompt;
+      this.pwaInstallPrompt = null;
+      try {
+        promptEvent.prompt();
+        const choice = await promptEvent.userChoice;
+        if (choice?.outcome === 'accepted') {
+          this.pwaInstalled = true;
+          this.showToast('Aplikasi sedang dipasang.');
+        } else {
+          this.showToast('Pemasangan dibatalkan.');
+        }
+      } catch {
+        this.showToast('Gagal membuka dialog pemasangan.', 'error');
       }
     },
 

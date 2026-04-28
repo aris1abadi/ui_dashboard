@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="KarjoAgro">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#17c3a3"/>
+      <stop offset="100%" stop-color="#0b1220"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#d9ffe9"/>
+      <stop offset="100%" stop-color="#77ffb7"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="256" cy="188" r="92" fill="rgba(255,255,255,0.08)"/>
+  <path d="M256 118c-49 36-76 80-76 124 0 47 35 82 76 82s76-35 76-82c0-44-27-88-76-124z" fill="url(#leaf)"/>
+  <path d="M256 158c-19 28-30 53-30 78 0 21 13 40 30 52 17-12 30-31 30-52 0-25-11-50-30-78z" fill="#0b1220" opacity="0.18"/>
+  <path d="M170 338h172v34H170z" rx="18" fill="#eaf4ff"/>
+  <path d="M196 388h120v28H196z" rx="14" fill="#bde9ff"/>
+  <circle cx="206" cy="188" r="18" fill="#0b1220" opacity="0.24"/>
+  <circle cx="306" cy="188" r="18" fill="#0b1220" opacity="0.24"/>
+</svg>

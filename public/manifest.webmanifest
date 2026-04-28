@@ -1,0 +1,18 @@
+{
+  "name": "KarjoAgro Kontrol UI",
+  "short_name": "KarjoAgro",
+  "description": "Dashboard kontrol dan monitoring KarjoAgro yang bisa dipakai offline sebagai PWA.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

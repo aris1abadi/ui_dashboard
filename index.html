@@ -5,6 +5,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>KarjoAgro Kontrol UI</title>
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="greenhouse.css" />
 </head>
@@ -224,6 +230,8 @@
         <button @click="openLogModal()" class="btn icon-btn" title="Log Aktivitas"
           :disabled="actionInFlight">📋</button>
         <button @click="openSettings()" class="btn icon-btn" title="Setelan" :disabled="actionInFlight">⚙</button>
+        <button x-show="canInstallPwa" @click="installPwa()" class="btn icon-btn" title="Pasang Aplikasi"
+          :disabled="actionInFlight">⬇</button>
         <button x-show="allowTaskCreate" @click="openTaskForm()" class="btn icon-btn"
           :title="`Tambah ${getUiLabel('task')}`" :disabled="actionInFlight">＋</button>
         <button @click="logoutApplication()" class="btn icon-btn" title="Keluar" :disabled="actionInFlight">⤺</button>
@@ -1103,6 +1111,15 @@
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
   <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {
+          // Offline support is best-effort; the app still works without SW.
+        });
+      });
+    }
+  </script>
 </body>
 
 </html>
