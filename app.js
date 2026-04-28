@@ -7,8 +7,8 @@ const defaults = {
   kontrolAliases: {},
   mqtt: {
     url: 'wss://z442812a.ala.asia-southeast1.emqxsl.com:8084/mqtt',
-    username: 'abadinet',
-    password: 'abadinet123',
+    username: '',
+    password: '',
     prefixOut: 'abadinet-out',
     prefixIn: 'abadinet-in',
     kontrolId: 'KA-0000'
@@ -23,6 +23,8 @@ const LOCAL_FALLBACK_AFTER_MS = 20000;
   const themeClassMap = { light: 'theme-light', ocean: 'theme-ocean', sunset: 'theme-sunset' };
   const LORA_CHANNEL_MIN = 0;
   const LORA_CHANNEL_MAX = 83;
+const LEGACY_MQTT_USERNAME = 'abadinet';
+const LEGACY_MQTT_PASSWORD = 'abadinet123';
 
 // --- FUNGSI BANTUAN MURNI ---
 function normalizeKontrolId(v) { return `${v || ''}`.trim(); }
@@ -42,6 +44,9 @@ function normalizeKontrolIdList(list, fallbackId) {
 }
 function normalizeConnectionPreference(v) {
   return `${v || ''}`.trim().toLowerCase() === 'local' ? 'local' : 'mqtt';
+}
+function isLegacySharedMqttCredential(username, password) {
+  return `${username || ''}`.trim() === LEGACY_MQTT_USERNAME && `${password || ''}`.trim() === LEGACY_MQTT_PASSWORD;
 }
 function toNumber(v, fb = 0) { const n = Number(v); return Number.isFinite(n) ? n : fb; }
 function toBool(v) { return v === true || v === '1' || v === 1; }
@@ -246,6 +251,8 @@ function app() {
     loadingTaskIndex: null, selectedTaskInfo: null,
     taskPage: 0, tasksPerPage: 4,
     pwaInstallPrompt: null, pwaInstalled: false,
+    showMqttCredentialModal: false,
+    mqttCredentialForm: { username: '', password: '', error: '', showPassword: false },
     // State UI
     showSettingsModal: false, showTaskModal: false, showScheduleModal: false, showScheduleListModal: false, showLogModal: false, showLoginKontrolModal: false, showAllTasksModal: false, showDeleteConfirm: false, settingsTab: 'status', toast: { visible: false, message: '', type: 'info', timer: null },
     login: { username: '', password: '', kontrolId: '', error: '', newKontrolId: '', newKontrolAlias: '', newKontrolIdError: '', showPassword: false }, lastLoginKontrolSelection: null,
@@ -663,6 +670,11 @@ function app() {
     get canInstallPwa() {
       return !!this.pwaInstallPrompt && !this.isStandalonePwa && !this.pwaInstalled;
     },
+    get hasStoredMqttCredentials() {
+      const username = `${this.config?.mqtt?.username || ''}`.trim();
+      const password = `${this.config?.mqtt?.password || ''}`.trim();
+      return !!username && !!password && !isLegacySharedMqttCredential(username, password);
+    },
 
     // Metode
     init() { 
@@ -682,13 +694,22 @@ function app() {
       try { parsed = raw ? JSON.parse(raw) : {}; } catch { parsed = {}; } 
       const mqttKontrolId = normalizeKontrolId(parsed?.mqtt?.kontrolId) || defaults.mqtt.kontrolId; 
       const kontrolIds = normalizeKontrolIdList(parsed?.kontrolIds, mqttKontrolId); 
+      const parsedMqtt = parsed.mqtt || {};
+      const legacyCredential = isLegacySharedMqttCredential(parsedMqtt.username, parsedMqtt.password);
       this.config = { 
         ...defaults, 
         ...parsed, 
         kontrolIds, 
         kontrolAliases: parsed.kontrolAliases || {},
-        mqtt: { ...defaults.mqtt, ...(parsed.mqtt || {}), kontrolId: mqttKontrolId } 
+        mqtt: {
+          ...defaults.mqtt,
+          ...parsedMqtt,
+          username: legacyCredential ? '' : `${parsedMqtt.username || ''}`.trim(),
+          password: legacyCredential ? '' : `${parsedMqtt.password || ''}`.trim(),
+          kontrolId: mqttKontrolId
+        }
       }; 
+      if (legacyCredential) this.saveConfig();
       this.pendingKontrolId = mqttKontrolId; 
       this.login.kontrolId = mqttKontrolId || kontrolIds[0]; 
       this.lastLoginKontrolSelection = this.login.kontrolId; 
@@ -734,6 +755,31 @@ function app() {
       } else {
         body.style.backgroundImage = 'none';
       }
+    },
+    openMqttCredentialModal() {
+      this.mqttCredentialForm.username = `${this.config?.mqtt?.username || ''}`.trim();
+      this.mqttCredentialForm.password = `${this.config?.mqtt?.password || ''}`.trim();
+      this.mqttCredentialForm.error = '';
+      this.mqttCredentialForm.showPassword = false;
+      this.showMqttCredentialModal = true;
+    },
+    closeMqttCredentialModal() {
+      this.showMqttCredentialModal = false;
+      this.mqttCredentialForm.error = '';
+      this.mqttCredentialForm.showPassword = false;
+    },
+    submitMqttCredentialModal() {
+      const username = `${this.mqttCredentialForm.username || ''}`.trim();
+      const password = `${this.mqttCredentialForm.password || ''}`.trim();
+      if (!username || !password) {
+        this.mqttCredentialForm.error = 'Username dan password MQTT wajib diisi.';
+        return;
+      }
+      this.config.mqtt.username = username;
+      this.config.mqtt.password = password;
+      this.saveConfig();
+      this.closeMqttCredentialModal();
+      this.startPreferredConnection();
     },
     setupPwaHooks() {
       window.addEventListener('beforeinstallprompt', (event) => {
@@ -892,6 +938,10 @@ function app() {
         this.mode = 'offline';
         this.connected = false;
         return this.showToast('Alamat koneksi online belum diisi.', 'error');
+      }
+      if (!this.hasStoredMqttCredentials) {
+        this.openMqttCredentialModal();
+        return;
       }
       if (this.settingsTab === 'maintenance') {
         this.settingsTab = 'settings';

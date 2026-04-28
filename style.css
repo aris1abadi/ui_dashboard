@@ -1577,10 +1577,41 @@ html.theme-light body.has-custom-bg .status-inline.badge-info .status-inline-ico
   margin-top: auto;
 }
 
+.modal-card.credential {
+  max-width: 480px;
+  width: min(480px, calc(100vw - 1.5rem));
+  height: auto;
+  max-height: calc(100vh - 2rem);
+}
+
+.modal-card.credential .modal-body {
+  overflow-y: auto;
+}
+
+.modal-card.credential .modal-footer {
+  gap: 0.75rem;
+}
+
+.modal-card.credential .modal-footer .btn {
+  flex: 1;
+}
+
 @media (max-width: 640px) {
   .modal-card.settings {
     height: 80vh;
     min-height: 80vh;
+  }
+
+  .modal-card.credential {
+    width: min(100vw - 1rem, 480px);
+  }
+
+  .modal-card.credential .modal-footer {
+    flex-direction: column-reverse;
+  }
+
+  .modal-card.credential .modal-footer .btn {
+    width: 100%;
   }
 }
 

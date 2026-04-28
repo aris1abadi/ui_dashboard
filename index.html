@@ -685,6 +685,49 @@
     </div>
   </div>
 
+  <!-- === Modal Kredensial MQTT === -->
+  <div x-show="showMqttCredentialModal" @keydown.escape.window="closeMqttCredentialModal()" x-transition class="modal"
+    style="z-index: 2600;" @click.self="closeMqttCredentialModal()">
+    <div class="modal-card credential">
+      <div class="modal-header">
+        <h3>Masukkan Kredensial MQTT</h3>
+        <button @click="closeMqttCredentialModal()" class="modal-close">×</button>
+      </div>
+      <div class="modal-body p-8">
+        <p class="text-sm text-gray-400 mb-4 leading-relaxed">
+          Credential MQTT belum tersimpan di browser ini. Isi sekali, lalu aplikasi akan memakainya otomatis di
+          koneksi berikutnya.
+        </p>
+        <div class="form-group">
+          <label>Username MQTT</label>
+          <input type="text" placeholder="Username broker" x-model="mqttCredentialForm.username"
+            autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label>Password MQTT</label>
+          <div class="relative w-full">
+            <input :type="mqttCredentialForm.showPassword ? 'text' : 'password'" placeholder="Password broker"
+              x-model="mqttCredentialForm.password" autocomplete="current-password" class="w-full pr-12" />
+            <button type="button" @click="mqttCredentialForm.showPassword = !mqttCredentialForm.showPassword"
+              class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white focus:outline-none"
+              style="margin-bottom: 0; background: transparent; border: none; padding: 0.5rem; height: auto; width: auto;">
+              <span x-text="mqttCredentialForm.showPassword ? '🙈' : '👁️'"></span>
+            </button>
+          </div>
+        </div>
+        <p class="login-error" :class="{'visible': mqttCredentialForm.error}" x-text="mqttCredentialForm.error"
+          role="status" aria-live="polite"></p>
+        <p class="text-xs text-gray-500 mt-3">
+          Disimpan hanya di browser/perangkat ini.
+        </p>
+      </div>
+      <div class="modal-footer credential-footer">
+        <button @click="closeMqttCredentialModal()" class="btn ghost">Batal</button>
+        <button @click="submitMqttCredentialModal()" class="btn primary">Simpan & Sambungkan</button>
+      </div>
+    </div>
+  </div>
+
   <!-- === Modal Task === -->
   <div x-show="showTaskModal" @keydown.escape.window="showTaskModal = false" x-transition class="modal"
     @click.self="showTaskModal = false">
