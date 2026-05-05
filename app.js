@@ -462,6 +462,15 @@ function app() {
       return '◌';
     },
     get filteredLogs() { if (this.logFilter === 'all') return this.logs; const map = { sensor: 0, button: 1, status: 3 }; return this.logs.filter(e => e.type === map[this.logFilter]); },
+    get paginatedFilteredLogs() {
+      const perPage = Math.max(1, Number(this.logPerPage) || 50);
+      const page = Math.max(0, Number(this.logPage) || 0);
+      return this.filteredLogs.slice(page * perPage, (page + 1) * perPage);
+    },
+    get logTotalPages() {
+      const perPage = Math.max(1, Number(this.logPerPage) || 50);
+      return Math.max(1, Math.ceil(this.filteredLogs.length / perPage));
+    },
     get sensorLogEntries() { return this.logs.filter(entry => Number(entry?.type) === 0); },
     get logChartMetrics() {
       const registered = (this.sensors || [])
@@ -2128,9 +2137,9 @@ function app() {
       this.showToast('Jadwal dihapus.');
     },
     openLogModal() { 
-      if (!this.beginAction()) return;
       this.showLogModal = true; 
       this.logChartSelectedIndex = null;
+      this.logPage = 0;
       this.logLoading = true;
       this.ensureDefaultLogDownloadRange();
       if (this.mode === 'mqtt') this.publishCommand('getLogs', [0, 30]);
@@ -2330,8 +2339,10 @@ function app() {
         try {
           const data = parsePayloadKontrol(muatan);
           if (data && typeof data === 'object' && !Array.isArray(data) && (Array.isArray(data.logs) || data.count !== undefined || data.storage !== undefined)) {
-            this.logs = data.logs || [];
-            this.logCount = data.count || this.logs.length;
+            const incomingLogs = Array.isArray(data.logs) ? data.logs : [];
+            const uiLogLimit = 300;
+            this.logs = incomingLogs.length > uiLogLimit ? incomingLogs.slice(-uiLogLimit) : incomingLogs;
+            this.logCount = data.count || incomingLogs.length || this.logs.length;
             this.logStorage = formatUkuranBerkas(data.storage || 0);
             payloadLoaded = true;
           } else {
@@ -2355,9 +2366,23 @@ function app() {
       if (payloadLoaded && !this.logChartMetrics.some(metric => metric.key === this.logChartMetric)) {
         this.logChartMetric = this.logChartMetrics[0]?.key || 'temperature';
       }
+      if (payloadLoaded) {
+        this.logPage = 0;
+      }
       if (this.logChartSelectedIndex !== null && this.logChartSelectedIndex >= this.logChartSeries.points.length) {
         this.logChartSelectedIndex = null;
       }
+    },
+    setLogPage(page) {
+      const totalPages = this.logTotalPages;
+      const next = Math.min(Math.max(0, Number(page) || 0), Math.max(0, totalPages - 1));
+      this.logPage = next;
+    },
+    prevLogPage() {
+      this.setLogPage(this.logPage - 1);
+    },
+    nextLogPage() {
+      this.setLogPage(this.logPage + 1);
     },
     setLogChartMetric(metric) {
       if (!metric) return;

@@ -979,7 +979,7 @@
           </template>
         </div>
         <div class="space-y-2">
-          <template x-for="(entry, index) in filteredLogs" :key="index">
+          <template x-for="(entry, index) in paginatedFilteredLogs" :key="`${logPage}-${index}-${entry.ts || index}`">
             <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30]">
               <div class="flex justify-between text-[10px] text-gray-500 mb-1">
                 <span x-text="getLogTypeName(entry.type)" class="font-bold text-primary"></span>
@@ -989,6 +989,14 @@
             </div>
           </template>
           <p class="text-center py-8 text-gray-500" x-show="filteredLogs.length === 0">Belum ada data log.</p>
+          <div class="flex items-center justify-between gap-3 pt-3" x-show="filteredLogs.length > 0">
+            <button class="btn small ghost" @click="prevLogPage()" :disabled="logPage <= 0">Sebelumnya</button>
+            <div class="text-[11px] text-gray-500 text-center">
+              <span x-text="`Halaman ${Math.min(logPage + 1, logTotalPages)} dari ${logTotalPages}`"></span>
+              <span class="block" x-text="`${filteredLogs.length} log ditampilkan`"></span>
+            </div>
+            <button class="btn small ghost" @click="nextLogPage()" :disabled="logPage + 1 >= logTotalPages">Berikutnya</button>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
