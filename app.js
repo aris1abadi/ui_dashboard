@@ -113,6 +113,7 @@ function parseSensorsJson(muatan) {
     valueType: toNumber(item.valueType ?? 0),
     value: item.value === '' || item.value === undefined ? null : toNumber(item.value, null),
     rawValue: item.rawValue === '' || item.rawValue === undefined ? null : toNumber(item.rawValue, null),
+    lastSensorRawValue: item.lastSensorRawValue === '' || item.lastSensorRawValue === undefined ? null : toNumber(item.lastSensorRawValue, null),
     moistureDryCalibration: item.moistureDryCalibration === '' || item.moistureDryCalibration === undefined ? 800 : toNumber(item.moistureDryCalibration, 800),
     moistureWetCalibration: item.moistureWetCalibration === '' || item.moistureWetCalibration === undefined ? 490 : toNumber(item.moistureWetCalibration, 490),
     distanceLowCalibration: item.distanceLowCalibration === '' || item.distanceLowCalibration === undefined ? null : toNumber(item.distanceLowCalibration, null),
@@ -165,6 +166,7 @@ function parseTasksJson(muatan) {
       thresholdEnabled: toBool(item.thresholdEnabled),
       actuatorActive: toBool(item.actuatorActive),
       lastSensorValue: item.lastSensorValue === '' || item.lastSensorValue === undefined ? null : toNumber(item.lastSensorValue, null),
+      lastSensorRawValue: item.lastSensorRawValue === '' || item.lastSensorRawValue === undefined ? null : toNumber(item.lastSensorRawValue, null),
       lastTriggerSource: normalisasiSumberTrigger(item.lastTriggerSource ?? item.triggerSource ?? item.source ?? item.lastTrigger ?? item.trigger ?? 'none'),
       schedules: parseTaskSchedulesJson(item.schedules || [], label)
     };
@@ -236,6 +238,16 @@ function formatNilaiAdc(nilai) {
   const numeric = Number(nilai);
   if (!Number.isFinite(numeric)) return `${nilai}`;
   return `${Math.round(numeric)}`;
+}
+function isValidRawAdcValue(nilai) {
+  const numeric = Number(nilai);
+  return Number.isFinite(numeric) && numeric > 0;
+}
+function pickRawAdcValue(...values) {
+  for (const value of values) {
+    if (isValidRawAdcValue(value)) return Math.round(Number(value));
+  }
+  return null;
 }
 function formatLocalDateTimeInput(value) {
   const date = value instanceof Date ? value : new Date(value);
@@ -1114,7 +1126,7 @@ function app() {
       const cmd = topic.substring(topic.lastIndexOf('/')+1); 
       if(cmd === 'respStatus') this.network = parseStatusJson(muatan); 
       if(cmd === 'respSensor') {
-        this.sensors = parseSensorsJson(muatan);
+        this.sensors = this.mergeSensors(parseSensorsJson(muatan));
         this.syncMoistureCalibrationFromSensors();
         this.syncDistanceCalibrationFromSensors();
         this.syncFuelCalibrationFromSensors();
@@ -1207,7 +1219,7 @@ function app() {
           ambilJsonDenganBatasWaktu(`${base}/api/tasks`, {}, 2500)
         ]);
         this.network = jaringan;
-        this.sensors = parseSensorsJson(sensorData);
+        this.sensors = this.mergeSensors(parseSensorsJson(sensorData));
         this.actuators = parseActuatorsJson(actuatorData);
         this.mergeTasks(parseTasksJson(taskData));
         this.syncMoistureCalibrationFromSensors();
@@ -1231,6 +1243,24 @@ function app() {
         }
       });
       this.tasks = newTasks;
+    },
+    mergeSensors(newSensors) {
+      const prevSensors = new Map((this.sensors || []).map(sensor => [`${Number(sensor.nodeId)}:${Number(sensor.childId)}`, sensor]));
+      return (Array.isArray(newSensors) ? newSensors : []).map(sensor => {
+        const key = `${Number(sensor.nodeId)}:${Number(sensor.childId)}`;
+        const previous = prevSensors.get(key) || {};
+        const mergedRaw = pickRawAdcValue(
+          sensor.rawValue,
+          sensor.lastSensorRawValue,
+          previous.rawValue,
+          previous.lastSensorRawValue
+        );
+        return {
+          ...sensor,
+          rawValue: mergedRaw,
+          lastSensorRawValue: mergedRaw
+        };
+      });
     },
     getTaskProgress(task) {
       if (!task.actuatorActive || !task.startTime) return 0;
@@ -1389,11 +1419,14 @@ function app() {
       if (!this.showMoistureCalibrationModal) return;
       const sensor = this.getMoistureCalibrationSensor();
       if (!sensor) return;
-      const rawValue = Number.isFinite(Number(sensor.rawValue)) && sensor.rawValue !== null
-        ? toNumber(sensor.rawValue, null)
-        : this.estimateMoistureRawFromValue(sensor);
-      if (Number.isFinite(Number(rawValue))) {
-        this.moistureCalibration.rawValue = Math.round(Number(rawValue));
+      const candidateRaw = pickRawAdcValue(
+        sensor.rawValue,
+        sensor.lastSensorRawValue,
+        this.moistureCalibration.rawValue,
+        this.estimateMoistureRawFromValue(sensor)
+      );
+      if (candidateRaw !== null) {
+        this.moistureCalibration.rawValue = candidateRaw;
       }
       this.moistureCalibration.currentValue = sensor.value;
       if (sensor.label) this.moistureCalibration.label = sensor.label;
@@ -1405,7 +1438,7 @@ function app() {
         try {
           const sensorData = await ambilJsonDenganBatasWaktu(`${base}/api/sensors`, {}, 2000);
           if (!sensorData) return false;
-          this.sensors = parseSensorsJson(sensorData);
+          this.sensors = this.mergeSensors(parseSensorsJson(sensorData));
           this.syncMoistureCalibrationFromSensors();
           this.lastUpdate = new Date();
           return true;
@@ -1444,9 +1477,12 @@ function app() {
       if (!this.isMoistureSensor(sensor)) return;
       const dryValue = toNumber(sensor.moistureDryCalibration, 800);
       const wetValue = toNumber(sensor.moistureWetCalibration, 490);
-      const rawValue = Number.isFinite(Number(sensor.rawValue)) && sensor.rawValue !== null
-        ? toNumber(sensor.rawValue, null)
-        : this.estimateMoistureRawFromValue(sensor);
+      const rawValue = pickRawAdcValue(
+        sensor.rawValue,
+        sensor.lastSensorRawValue,
+        this.moistureCalibration?.rawValue,
+        this.estimateMoistureRawFromValue(sensor)
+      );
       this.moistureCalibration = {
         nodeId: sensor.nodeId,
         childId: sensor.childId,
@@ -1459,6 +1495,11 @@ function app() {
       };
       this.showMoistureCalibrationModal = true;
       this.startMoistureCalibrationPolling();
+      setTimeout(() => {
+        if (this.showMoistureCalibrationModal) {
+          this.refreshMoistureCalibrationData();
+        }
+      }, 400);
     },
     closeMoistureCalibration() {
       this.clearMoistureCalibrationPolling();
@@ -1537,11 +1578,14 @@ function app() {
       if (!this.showDistanceCalibrationModal) return;
       const sensor = this.getDistanceCalibrationSensor();
       if (!sensor) return;
-      const rawValue = Number.isFinite(Number(sensor.rawValue)) && sensor.rawValue !== null
-        ? toNumber(sensor.rawValue, null)
-        : this.estimateDistanceRawFromValue(sensor);
-      if (Number.isFinite(Number(rawValue))) {
-        this.distanceCalibration.rawValue = Number(rawValue);
+      const rawValue = pickRawAdcValue(
+        sensor.rawValue,
+        sensor.lastSensorRawValue,
+        this.distanceCalibration.rawValue,
+        this.estimateDistanceRawFromValue(sensor)
+      );
+      if (rawValue !== null) {
+        this.distanceCalibration.rawValue = rawValue;
       }
       this.distanceCalibration.currentValue = sensor.value;
       if (sensor.label) this.distanceCalibration.label = sensor.label;
@@ -1559,7 +1603,7 @@ function app() {
         try {
           const sensorData = await ambilJsonDenganBatasWaktu(`${base}/api/sensors`, {}, 2000);
           if (!sensorData) return false;
-          this.sensors = parseSensorsJson(sensorData);
+          this.sensors = this.mergeSensors(parseSensorsJson(sensorData));
           this.syncDistanceCalibrationFromSensors();
           this.lastUpdate = new Date();
           return true;
@@ -1593,9 +1637,12 @@ function app() {
     },
     openDistanceCalibration(sensor) {
       if (!this.isDistanceSensor(sensor)) return;
-      const rawValue = Number.isFinite(Number(sensor.rawValue)) && sensor.rawValue !== null
-        ? toNumber(sensor.rawValue, null)
-        : this.estimateDistanceRawFromValue(sensor);
+      const rawValue = pickRawAdcValue(
+        sensor.rawValue,
+        sensor.lastSensorRawValue,
+        this.distanceCalibration?.rawValue,
+        this.estimateDistanceRawFromValue(sensor)
+      );
       this.distanceCalibration = {
         nodeId: sensor.nodeId,
         childId: sensor.childId,
@@ -1683,11 +1730,14 @@ function app() {
       if (!this.showFuelCalibrationModal) return;
       const sensor = this.getFuelCalibrationSensor();
       if (!sensor) return;
-      const rawValue = Number.isFinite(Number(sensor.rawValue)) && sensor.rawValue !== null
-        ? toNumber(sensor.rawValue, null)
-        : this.estimateFuelRawFromValue(sensor);
-      if (Number.isFinite(Number(rawValue))) {
-        this.fuelCalibration.rawValue = Number(rawValue);
+      const rawValue = pickRawAdcValue(
+        sensor.rawValue,
+        sensor.lastSensorRawValue,
+        this.fuelCalibration.rawValue,
+        this.estimateFuelRawFromValue(sensor)
+      );
+      if (rawValue !== null) {
+        this.fuelCalibration.rawValue = rawValue;
       }
       this.fuelCalibration.currentValue = sensor.value;
       if (sensor.label) this.fuelCalibration.label = sensor.label;
@@ -1701,7 +1751,7 @@ function app() {
         try {
           const sensorData = await ambilJsonDenganBatasWaktu(`${base}/api/sensors`, {}, 2000);
           if (!sensorData) return false;
-          this.sensors = parseSensorsJson(sensorData);
+          this.sensors = this.mergeSensors(parseSensorsJson(sensorData));
           this.syncFuelCalibrationFromSensors();
           this.lastUpdate = new Date();
           return true;
@@ -1735,9 +1785,12 @@ function app() {
     },
     openFuelCalibration(sensor) {
       if (!this.isFuelHeightSensor(sensor)) return;
-      const rawValue = Number.isFinite(Number(sensor.rawValue)) && sensor.rawValue !== null
-        ? toNumber(sensor.rawValue, null)
-        : this.estimateFuelRawFromValue(sensor);
+      const rawValue = pickRawAdcValue(
+        sensor.rawValue,
+        sensor.lastSensorRawValue,
+        this.fuelCalibration?.rawValue,
+        this.estimateFuelRawFromValue(sensor)
+      );
       this.fuelCalibration = {
         nodeId: sensor.nodeId,
         childId: sensor.childId,
