@@ -1,4 +1,4 @@
-const CACHE_NAME = 'karjoagro-ui-v1';
+const CACHE_NAME = 'karjoagro-ui-v2';
 const PRECACHE_URLS = [
   './',
   './index.html',
@@ -32,6 +32,16 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
+
+  if (url.origin === self.location.origin && url.pathname.startsWith('/api/')) {
+    event.respondWith(
+      fetch(request).catch(() => new Response(JSON.stringify({ ok: false, error: 'offline' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' }
+      }))
+    );
+    return;
+  }
 
   if (request.mode === 'navigate') {
     event.respondWith(

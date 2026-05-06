@@ -726,6 +726,30 @@ function app() {
       const maskedPass = password ? `${password.slice(0, 2)}***` : '-';
       return `Tersimpan di karjo_ui_config (${maskedUser} / ${maskedPass})`;
     },
+    clearDeviceState() {
+      this.sensors = [];
+      this.actuators = [];
+      this.tasks = [];
+      this.network = {};
+      this.currentTaskIndex = 0;
+      this.selectedTaskInfo = null;
+      this.taskPage = 0;
+      this.loadingTaskIndex = null;
+      this.pendingTaskSave = null;
+      this.localLastSuccessMs = 0;
+      this.lastUpdate = null;
+    },
+    applyNetworkScope(network) {
+      const nextNetwork = network && typeof network === 'object' ? network : {};
+      const previousId = normalizeKontrolId(this.network?.kontrolId || this.config?.mqtt?.kontrolId || '');
+      const nextId = normalizeKontrolId(nextNetwork?.kontrolId || '');
+      const shouldReset = previousId && nextId && previousId !== nextId;
+      this.network = nextNetwork;
+      if (shouldReset) {
+        this.clearDeviceState();
+        this.network = nextNetwork;
+      }
+    },
 
     // Metode
     init() { 
@@ -1035,6 +1059,7 @@ function app() {
       this.mode = 'local';
       this.connected = false;
       this.localLastSuccessMs = 0;
+      this.clearDeviceState();
 
       const koneksiLokalOK = await this.tryLocalConnection();
       if (koneksiLokalOK) {
@@ -1050,7 +1075,7 @@ function app() {
       const base = this.config.localBaseUrl.replace(/\/$/, '');
       const data = await ambilJsonDenganBatasWaktu(`${base}/api/status`, null, 2000);
       if (!data) return false;
-      this.network = parseStatusJson(data);
+      this.applyNetworkScope(parseStatusJson(data));
       return true;
     },
     connectMqtt() {
@@ -1106,6 +1131,7 @@ function app() {
         this.connected = true;
         this.mode = 'mqtt';
         this.mqttPendingConnectError = null;
+        this.clearDeviceState();
         const topic = `abadinet-out/${this.config.mqtt.kontrolId}/#`;
         this.mqttClient.subscribe(topic);
         this.publishCommand({ cmd: 'getAll' });
@@ -1133,7 +1159,7 @@ function app() {
     },
     handleMqttMessage(topic, muatan) { 
       const cmd = topic.substring(topic.lastIndexOf('/')+1); 
-      if(cmd === 'respStatus') this.network = parseStatusJson(muatan); 
+      if(cmd === 'respStatus') this.applyNetworkScope(parseStatusJson(muatan)); 
       if(cmd === 'respSensor') {
         this.sensors = this.mergeSensors(parseSensorsJson(muatan));
         this.syncMoistureCalibrationFromSensors();
@@ -1227,7 +1253,7 @@ function app() {
           ambilJsonDenganBatasWaktu(`${base}/api/actuators`, {}, 2500),
           ambilJsonDenganBatasWaktu(`${base}/api/tasks`, {}, 2500)
         ]);
-        this.network = jaringan;
+        this.applyNetworkScope(jaringan);
         this.sensors = this.mergeSensors(parseSensorsJson(sensorData));
         this.actuators = parseActuatorsJson(actuatorData);
         this.mergeTasks(parseTasksJson(taskData));
@@ -1381,7 +1407,7 @@ function app() {
       return true; 
     },
     endAction() { if(this.actionTimer) clearTimeout(this.actionTimer); this.actionInFlight = false; this.loadingTaskIndex = null; },
-    applyKontrolId(nextId, { skipLogout = false } = {}) { const normalized = normalizeKontrolId(nextId); if (!normalized || normalized === this.config.mqtt.kontrolId) return; const previous = this.config.mqtt.kontrolId; this.config.mqtt.kontrolId = normalized; this.ensureKontrolIdList(normalized); this.saveConfig(); if (this.mode === 'mqtt' && this.mqttClient?.connected) { if (previous) this.mqttClient.unsubscribe(`abadinet-out/${previous}/#`); this.mqttClient.subscribe(`abadinet-out/${normalized}/#`); this.publishCommand('getAll'); } if (!skipLogout) this.logoutApplication(true); },
+    applyKontrolId(nextId, { skipLogout = false } = {}) { const normalized = normalizeKontrolId(nextId); if (!normalized || normalized === this.config.mqtt.kontrolId) return; const previous = this.config.mqtt.kontrolId; this.config.mqtt.kontrolId = normalized; this.ensureKontrolIdList(normalized); this.clearDeviceState(); this.saveConfig(); if (this.mode === 'mqtt' && this.mqttClient?.connected) { if (previous) this.mqttClient.unsubscribe(`abadinet-out/${previous}/#`); this.mqttClient.subscribe(`abadinet-out/${normalized}/#`); this.publishCommand('getAll'); } if (!skipLogout) this.logoutApplication(true); },
     ensureKontrolIdList(id) { const normalized = normalizeKontrolId(id); if(normalized && !this.config.kontrolIds.includes(normalized)) { this.config.kontrolIds.push(normalized); } },
     
     // Fungsi tampilan task & jadwal
