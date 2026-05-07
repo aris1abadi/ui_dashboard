@@ -355,6 +355,26 @@ input, textarea, [contenteditable="true"] {
   color: #000;
 }
 
+.btn.login-online {
+  background: #25f4b8;
+  color: #000;
+}
+
+.btn.login-online:hover {
+  background: #1db98b;
+  transform: translateY(-1px);
+}
+
+.btn.login-offline {
+  background: #ef4444;
+  color: #fff;
+}
+
+.btn.login-offline:hover {
+  background: #dc2626;
+  transform: none;
+}
+
 .btn.primary:hover {
   background: var(--primary-dark);
   transform: translateY(-1px);
@@ -362,6 +382,13 @@ input, textarea, [contenteditable="true"] {
 
 .btn.primary:disabled {
   opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn.login-offline:disabled,
+.btn.login-online:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
   transform: none;
 }
@@ -379,6 +406,20 @@ input, textarea, [contenteditable="true"] {
 .btn.small {
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
+}
+
+.login-spinner {
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 9999px;
+  border: 2px solid rgba(0, 0, 0, 0.22);
+  border-top-color: currentColor;
+  display: inline-block;
+  animation: login-spin 0.8s linear infinite;
+}
+
+@keyframes login-spin {
+  to { transform: rotate(360deg); }
 }
 
 .btn.icon-btn {

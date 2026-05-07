@@ -330,10 +330,11 @@ function app() {
       if (this.connectionPreference === 'local') return { text: 'Mode lokal aktif.', variant: 'badge-info' };
       return { text: 'MQTT belum terhubung.', variant: 'badge-danger' };
     },
-    get loginRoleLabel() {
-      if (this.loginRole === 'admin') return 'Admin';
-      if (this.loginRole === 'engineer') return 'Engineer';
-      return 'Tamu';
+    get loginConnectionBadgeText() {
+      if (this.mode === 'mqtt' && this.connected) return 'ONLINE';
+      if (this.mode === 'local' || this.connectionPreference === 'local') return 'LOKAL';
+      if (this.mode === 'detecting') return 'MENUNGGU';
+      return 'OFFLINE';
     },
     get canEditAdminPassword() {
       return this.loginRole === 'admin';
@@ -885,6 +886,9 @@ function app() {
       }
       this.loginPending = null;
     },
+    get isLoginPending() {
+      return !!this.loginPending;
+    },
     clearAuthPasswordPending() {
       if (this.authPasswordPendingTimer) {
         clearTimeout(this.authPasswordPendingTimer);
@@ -907,24 +911,36 @@ function app() {
     },
     async sendLocalLogin(username, password) {
       const base = this.config.localBaseUrl.replace(/\/$/, '');
-      const response = await fetch(`${base}/api/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
-      return response.json().catch(() => ({}));
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await fetch(`${base}/api/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+          signal: controller.signal
+        });
+        return response.json().catch(() => ({}));
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          throw new Error('UI tidak bisa terhubung ke kontroller.');
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
     },
     sendMqttLogin(username, password) {
       return new Promise((resolve, reject) => {
         if (!this.mqttClient?.connected) {
-          reject(new Error('MQTT belum terhubung.'));
+          reject(new Error('UI tidak bisa terhubung ke kontroller.'));
           return;
         }
         this.clearLoginPending();
         this.loginPending = { username, resolve, reject };
         this.loginPendingTimer = setTimeout(() => {
           if (this.loginPending?.reject) {
-            this.loginPending.reject(new Error('Login MQTT timeout.'));
+            this.loginPending.reject(new Error('UI tidak bisa terhubung ke kontroller.'));
           }
           this.clearLoginPending();
         }, 10000);
@@ -1080,19 +1096,21 @@ function app() {
       }
     },
     async attemptLogin(connectionMode = 'mqtt') { 
+      if (this.isLoginPending) return;
       this.login.error = ''; 
       const username = this.loginUiId;
       const password = `${this.login.password || ''}`.trim();
       if (!username) return this.login.error = 'UI ID belum tersedia.';
       if (!password) return this.login.error = 'Sandi login belum diisi.';
       this.login.username = username;
+      this.loginPending = { mode: normalizeConnectionPreference(connectionMode) };
       try {
         if (normalizeConnectionPreference(connectionMode) === 'local') {
           this.connectionPreference = 'local';
           localStorage.setItem('karjo_ui_connection_mode', this.connectionPreference);
           this.stopKaConnections();
           const localReady = await this.tryLocalConnection();
-          if (!localReady) throw new Error('Kontrol lokal belum merespons.');
+          if (!localReady) throw new Error('UI tidak bisa terhubung ke kontroller.');
           this.mode = 'local';
           this.connected = true;
           const result = await this.sendLocalLogin(username, password);
@@ -1106,7 +1124,7 @@ function app() {
         }
 
         if (!this.mqttClient?.connected) {
-          throw new Error('MQTT belum terhubung.');
+          throw new Error('UI tidak bisa terhubung ke kontroller.');
         }
         const result = await this.sendMqttLogin(username, password);
         if (!result?.ok) throw new Error(result?.error || 'Login MQTT ditolak.');

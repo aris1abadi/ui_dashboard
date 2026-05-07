@@ -1,4 +1,4 @@
-const CACHE_NAME = 'karjoagro-ui-v2';
+const CACHE_NAME = 'karjoagro-ui-v4';
 const PRECACHE_URLS = [
   './',
   './index.html',
