@@ -34,8 +34,8 @@ Endpoint yang digunakan dashboard:
 - `GET /api/actuators`
 - `GET /api/tasks`
 - `GET /api/getAll`
-- `POST /api/cmd`
 - `POST /api/login`
+- `POST /api/cmd`
 - `POST /api/wifi`
 - `GET /api/wifiScan`
 - `GET /api/logs`
@@ -138,3 +138,9 @@ Jika ada perubahan field baru, usahakan:
 1. `ui_dashboard` membaca field itu tanpa perlu menebak format lama
 2. `karjoAgroKontrol2` dan `karjoAgroGreenHouseS2` mengirim field yang sama
 3. greenhouse tetap mempertahankan 3 task fixed untuk hardware yang sudah terkunci
+
+## Login Baru
+
+- username login memakai `uiId` otomatis dalam format `UI-xxxx`
+- dashboard menunggu MQTT siap saat halaman login dibuka
+- password dikirim ke controller untuk divalidasi melalui MQTT atau `POST /api/login`

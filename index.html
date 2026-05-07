@@ -31,8 +31,10 @@
         </button>
       </div>
 
-      <input x-model="login.username" @input="login.error = ''" type="text" autocomplete="username"
-        placeholder="Nama Pengguna" required />
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Username</p>
+        <p class="text-lg font-bold text-white" x-text="loginUiId || 'UI-xxxx'"></p>
+      </div>
 
       <div class="relative w-full">
         <input x-model="login.password" @input="login.error = ''" :type="login.showPassword ? 'text' : 'password'"
@@ -44,6 +46,14 @@
         </button>
       </div>
 
+      <div class="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 flex items-center justify-between gap-3">
+        <div>
+          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Status MQTT</p>
+          <p class="text-sm font-semibold text-white" x-text="loginConnectionStatus.text"></p>
+        </div>
+        <span class="tag" :class="loginConnectionStatus.variant" x-text="connected ? 'ONLINE' : 'MENUNGGU'"></span>
+      </div>
+
       <p class="login-error" :class="{'visible': login.error}" x-text="login.error" role="status" aria-live="polite">
       </p>
 
@@ -53,8 +63,8 @@
         <button type="submit" class="btn primary flex-1">Konek Online</button>
       </div>
 
-      <p class="login-hint mt-4 text-center text-xs text-gray-500">Akun bawaan: <strong>admin</strong> /
-        <strong>admin123</strong></p>
+      <p class="login-hint mt-4 text-center text-xs text-gray-500">Username memakai `UI-xxxx` bawaan perangkat ini.
+        Login pakai sandi yang tersimpan di kontroler.</p>
     </form>
 
     <!-- Modal tambah ID Kontrol -->
@@ -553,7 +563,7 @@
         </div>
       </div>
 
-      <div class="tab-panel" x-show="settingsTab === 'settings' && !showMaintenanceTab && mode !== 'mqtt'" x-transition>
+      <div class="tab-panel" x-show="settingsTab === 'settings' && !showMaintenanceTab" x-transition>
         <div class="form-group">
           <label>Alamat Dasar Lokal</label>
           <input type="text" placeholder="http://192.168.4.1" x-model.lazy="config.localBaseUrl" />
@@ -572,6 +582,60 @@
           <label>Durasi Manual (menit): <span x-text="Math.round(config.manualDurationMs / 60000)"></span></label>
           <input type="range" min="1" max="60" step="1" :value="Math.round(config.manualDurationMs / 60000)"
             @input="config.manualDurationMs = $event.target.value * 60000" />
+        </div>
+        <div class="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
+          <div class="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <p class="text-xs uppercase tracking-widest text-gray-500">Login Role</p>
+              <h4 class="text-lg font-bold text-white" x-text="loginRoleLabel"></h4>
+            </div>
+            <span class="tag" :class="canEditAdminPassword ? 'badge-success' : 'badge-warn'"
+              x-text="canEditAdminPassword ? 'Admin bisa ubah password' : 'Engineer readonly'"></span>
+          </div>
+
+          <div class="grid gap-4 md:grid-cols-2">
+            <div class="form-group">
+              <label>Password Lama</label>
+              <div class="relative w-full">
+                <input :type="authPasswordForm.showCurrentPassword ? 'text' : 'password'"
+                  placeholder="Masukkan password admin saat ini" x-model="authPasswordForm.currentPassword"
+                  autocomplete="current-password" class="w-full pr-12" />
+                <button type="button" @click="authPasswordForm.showCurrentPassword = !authPasswordForm.showCurrentPassword"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white focus:outline-none"
+                  style="margin-bottom: 0; background: transparent; border: none; padding: 0.5rem; height: auto; width: auto;">
+                  <span x-text="authPasswordForm.showCurrentPassword ? '🙈' : '👁️'"></span>
+                </button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Password Baru Admin</label>
+              <div class="relative w-full">
+                <input :type="authPasswordForm.showNewPassword ? 'text' : 'password'"
+                  placeholder="Password admin baru" x-model="authPasswordForm.newPassword"
+                  autocomplete="new-password" class="w-full pr-12" />
+                <button type="button" @click="authPasswordForm.showNewPassword = !authPasswordForm.showNewPassword"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white focus:outline-none"
+                  style="margin-bottom: 0; background: transparent; border: none; padding: 0.5rem; height: auto; width: auto;">
+                  <span x-text="authPasswordForm.showNewPassword ? '🙈' : '👁️'"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid gap-4 md:grid-cols-2 mt-4">
+            <div class="form-group">
+              <label>Konfirmasi Password Baru</label>
+              <input type="password" placeholder="Ulangi password admin baru" x-model="authPasswordForm.confirmPassword"
+                autocomplete="new-password" />
+            </div>
+            <div class="form-group">
+              <label>Password Engineer Backup</label>
+              <input type="text" value="karjoAgro890" readonly class="opacity-70" />
+            </div>
+          </div>
+
+          <p class="login-error mt-3" :class="{'visible': authPasswordForm.error}" x-text="authPasswordForm.error"
+            role="status" aria-live="polite"></p>
         </div>
       </div>
 
@@ -684,6 +748,10 @@
         </button>
         <button x-show="settingsTab === 'settings' && !showMaintenanceTab && mode !== 'mqtt'" @click="saveAndReconnect"
           class="btn primary">Simpan & Sambungkan</button>
+        <button x-show="settingsTab === 'settings' && !showMaintenanceTab" @click="changeAdminPassword()"
+          class="btn primary" :disabled="!canEditAdminPassword">
+          Simpan Password Admin
+        </button>
         <button x-show="settingsTab === 'maintenance' && showMaintenanceTab" @click="showSettingsModal = false"
           class="btn primary">Tutup</button>
       </div>

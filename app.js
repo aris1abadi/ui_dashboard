@@ -15,7 +15,6 @@ const defaults = {
   }
 };
 const loginSessionKey = 'karjo_ui_authenticated';
-const loginCredentials = { username: 'admin', password: 'admin123' };
 const LOCAL_PROBE_WINDOW_MS = 15000;
 const LOCAL_PROBE_INTERVAL_MS = 3000;
 const LOCAL_FALLBACK_AFTER_MS = 20000;
@@ -284,10 +283,15 @@ function app() {
     mqttConnectTimer: null,
     mqttConnectFailureHandled: false,
     mqttPendingConnectError: null,
+    loginPending: null,
+    loginPendingTimer: null,
+    authPasswordPending: null,
+    authPasswordPendingTimer: null,
     mqttCredentialForm: { username: '', password: '', error: '', showPassword: false },
     // State UI
     showSettingsModal: false, showTaskModal: false, showScheduleModal: false, showScheduleListModal: false, showLogModal: false, showLoginKontrolModal: false, showAllTasksModal: false, showDeleteConfirm: false, settingsTab: 'status', toast: { visible: false, message: '', type: 'info', timer: null },
-    login: { username: '', password: '', kontrolId: '', error: '', newKontrolId: '', newKontrolAlias: '', newKontrolIdError: '', showPassword: false }, lastLoginKontrolSelection: null,
+    login: { username: '', password: '', kontrolId: '', error: '', newKontrolId: '', newKontrolAlias: '', newKontrolIdError: '', showPassword: false }, lastLoginKontrolSelection: null, loginRole: 'guest',
+    authPasswordForm: { currentPassword: '', newPassword: '', confirmPassword: '', error: '', showCurrentPassword: false, showNewPassword: false },
     editingTask: {}, editingSchedule: {}, scheduleListTaskIndex: -1, taskToDelete: null,
     showMoistureCalibrationModal: false,
     moistureCalibrationPollTimer: null,
@@ -316,6 +320,23 @@ function app() {
     get allowTaskDelete() { return this.network?.allowTaskDelete !== false; },
     get activeKontrolId() {
       return normalizeKontrolId(this.network?.kontrolId || this.config?.mqtt?.kontrolId || this.login?.kontrolId || '');
+    },
+    get loginUiId() {
+      return normalizeKontrolId(this.config?.uiId || this.login?.username || '');
+    },
+    get loginConnectionStatus() {
+      if (this.mode === 'mqtt' && this.connected) return { text: 'MQTT terhubung, siap login.', variant: 'badge-success' };
+      if (this.mode === 'detecting') return { text: 'Menyambungkan ke MQTT...', variant: 'badge-warn' };
+      if (this.connectionPreference === 'local') return { text: 'Mode lokal aktif.', variant: 'badge-info' };
+      return { text: 'MQTT belum terhubung.', variant: 'badge-danger' };
+    },
+    get loginRoleLabel() {
+      if (this.loginRole === 'admin') return 'Admin';
+      if (this.loginRole === 'engineer') return 'Engineer';
+      return 'Tamu';
+    },
+    get canEditAdminPassword() {
+      return this.loginRole === 'admin';
     },
     get loginKontrolButtonLabel() {
       const activeId = normalizeKontrolId(this.login?.kontrolId || this.config?.mqtt?.kontrolId || this.config?.kontrolIds?.[0] || '');
@@ -785,6 +806,7 @@ function app() {
       }; 
       this.pendingKontrolId = mqttKontrolId; 
       this.login.kontrolId = mqttKontrolId || kontrolIds[0]; 
+      this.login.username = this.config.uiId || '';
       this.lastLoginKontrolSelection = this.login.kontrolId; 
       this.connectionPreference = normalizeConnectionPreference(localStorage.getItem('karjo_ui_connection_mode'));
     },
@@ -856,6 +878,84 @@ function app() {
         this.mqttConnectTimer = null;
       }
     },
+    clearLoginPending() {
+      if (this.loginPendingTimer) {
+        clearTimeout(this.loginPendingTimer);
+        this.loginPendingTimer = null;
+      }
+      this.loginPending = null;
+    },
+    clearAuthPasswordPending() {
+      if (this.authPasswordPendingTimer) {
+        clearTimeout(this.authPasswordPendingTimer);
+        this.authPasswordPendingTimer = null;
+      }
+      this.authPasswordPending = null;
+    },
+    finishLoginSuccess(connectionMode, message) {
+      this.isAuthenticated = true;
+      localStorage.setItem(loginSessionKey, '1');
+      this.connectionPreference = normalizeConnectionPreference(connectionMode);
+      localStorage.setItem('karjo_ui_connection_mode', this.connectionPreference);
+      if (this.connectionPreference === 'local') {
+        this.startLocalPolling();
+      } else if (this.mqttClient?.connected) {
+        this.publishCommand({ cmd: 'getAll' });
+        this.startMqttPolling();
+      }
+      this.showToast(message || (this.connectionPreference === 'local' ? 'Masuk lokal berhasil.' : 'Masuk online berhasil.'));
+    },
+    async sendLocalLogin(username, password) {
+      const base = this.config.localBaseUrl.replace(/\/$/, '');
+      const response = await fetch(`${base}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      return response.json().catch(() => ({}));
+    },
+    sendMqttLogin(username, password) {
+      return new Promise((resolve, reject) => {
+        if (!this.mqttClient?.connected) {
+          reject(new Error('MQTT belum terhubung.'));
+          return;
+        }
+        this.clearLoginPending();
+        this.loginPending = { username, resolve, reject };
+        this.loginPendingTimer = setTimeout(() => {
+          if (this.loginPending?.reject) {
+            this.loginPending.reject(new Error('Login MQTT timeout.'));
+          }
+          this.clearLoginPending();
+        }, 10000);
+        this.publishCommand({ cmd: 'login', username, password });
+      });
+    },
+    sendLocalAdminPasswordChange(username, currentPassword, newPassword) {
+      const base = this.config.localBaseUrl.replace(/\/$/, '');
+      return fetch(`${base}/api/login/password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, currentPassword, newPassword })
+      }).then(res => res.json().catch(() => ({})));
+    },
+    sendMqttAdminPasswordChange(username, currentPassword, newPassword) {
+      return new Promise((resolve, reject) => {
+        if (!this.mqttClient?.connected) {
+          reject(new Error('MQTT belum terhubung.'));
+          return;
+        }
+        this.clearAuthPasswordPending();
+        this.authPasswordPending = { username, resolve, reject };
+        this.authPasswordPendingTimer = setTimeout(() => {
+          if (this.authPasswordPending?.reject) {
+            this.authPasswordPending.reject(new Error('Perubahan password timeout.'));
+          }
+          this.clearAuthPasswordPending();
+        }, 10000);
+        this.publishCommand({ cmd: 'setAdminPassword', username, currentPassword, newPassword });
+      });
+    },
     handleMqttConnectFailure(error) {
       if (this.mqttConnectFailureHandled) return;
       this.mqttConnectFailureHandled = true;
@@ -864,6 +964,8 @@ function app() {
         ? 'Credential MQTT ditolak. Periksa username dan password.'
         : 'MQTT gagal tersambung. Periksa alamat broker atau jaringan.';
       this.clearMqttConnectTimer();
+      this.clearLoginPending();
+      this.clearAuthPasswordPending();
       if (this.mqttClient) {
         this.mqttClient.end(true);
         this.mqttClient = null;
@@ -973,29 +1075,62 @@ function app() {
       this.connectionPreference = normalizeConnectionPreference(localStorage.getItem('karjo_ui_connection_mode'));
       if (this.isAuthenticated) {
         this.startPreferredConnection();
+      } else {
+        this.connectMqtt();
       }
     },
-    attemptLogin(connectionMode = 'mqtt') { 
+    async attemptLogin(connectionMode = 'mqtt') { 
       this.login.error = ''; 
-      if (!this.login.username || !this.login.password) return this.login.error = 'Lengkapi nama pengguna dan sandi.'; 
-      if (this.login.username === loginCredentials.username && this.login.password === loginCredentials.password) { 
-        if (this.login.kontrolId && this.login.kontrolId !== this.config.mqtt.kontrolId) { this.applyKontrolId(this.login.kontrolId, { skipLogout: true }); } 
-        this.connectionPreference = normalizeConnectionPreference(connectionMode);
-        localStorage.setItem('karjo_ui_connection_mode', this.connectionPreference);
-        this.isAuthenticated = true; 
-        localStorage.setItem(loginSessionKey, '1'); 
-        this.showToast(this.connectionPreference === 'local' ? 'Masuk lokal berhasil.' : 'Masuk online berhasil.'); 
-        this.startPreferredConnection();
-      } else { 
-        this.login.error = 'Nama pengguna atau sandi salah.'; 
-      } 
+      const username = this.loginUiId;
+      const password = `${this.login.password || ''}`.trim();
+      if (!username) return this.login.error = 'UI ID belum tersedia.';
+      if (!password) return this.login.error = 'Sandi login belum diisi.';
+      this.login.username = username;
+      try {
+        if (normalizeConnectionPreference(connectionMode) === 'local') {
+          this.connectionPreference = 'local';
+          localStorage.setItem('karjo_ui_connection_mode', this.connectionPreference);
+          this.stopKaConnections();
+          const localReady = await this.tryLocalConnection();
+          if (!localReady) throw new Error('Kontrol lokal belum merespons.');
+          this.mode = 'local';
+          this.connected = true;
+          const result = await this.sendLocalLogin(username, password);
+          if (!result?.ok) throw new Error(result?.error || 'Login lokal ditolak.');
+          this.loginRole = `${result?.role || ''}`.trim() || 'guest';
+          if (this.login.kontrolId && this.login.kontrolId !== this.config.mqtt.kontrolId) {
+            this.applyKontrolId(this.login.kontrolId, { skipLogout: true });
+          }
+          this.finishLoginSuccess('local', result?.message || 'Masuk lokal berhasil.');
+          return;
+        }
+
+        if (!this.mqttClient?.connected) {
+          throw new Error('MQTT belum terhubung.');
+        }
+        const result = await this.sendMqttLogin(username, password);
+        if (!result?.ok) throw new Error(result?.error || 'Login MQTT ditolak.');
+        this.loginRole = `${result?.role || ''}`.trim() || 'guest';
+        if (this.login.kontrolId && this.login.kontrolId !== this.config.mqtt.kontrolId) {
+          this.applyKontrolId(this.login.kontrolId, { skipLogout: true });
+        }
+        this.finishLoginSuccess('mqtt', result?.message || 'Masuk online berhasil.');
+      } catch (error) {
+        this.login.error = `${error?.message || error || 'Login gagal.'}`;
+        this.showToast(this.login.error, 'error');
+      } finally {
+        this.clearLoginPending();
+      }
     },
     logoutApplication(skipPrompt = false) {
       this.stopKaConnections();
       this.isAuthenticated = false;
       localStorage.removeItem(loginSessionKey);
+      this.clearLoginPending();
       this.login.username = '';
       this.login.password = '';
+      this.loginRole = 'guest';
+      this.resetAuthPasswordForm();
       this.showToast('Anda telah keluar.');
       setTimeout(() => window.location.reload(), 300);
     },
@@ -1134,8 +1269,10 @@ function app() {
         this.clearDeviceState();
         const topic = `abadinet-out/${this.config.mqtt.kontrolId}/#`;
         this.mqttClient.subscribe(topic);
-        this.publishCommand({ cmd: 'getAll' });
-        this.startMqttPolling();
+        if (this.isAuthenticated) {
+          this.publishCommand({ cmd: 'getAll' });
+          this.startMqttPolling();
+        }
       });
       this.mqttClient.on('message', (topic, message) => this.handleMqttMessage(topic, message.toString()));
       this.mqttClient.on('close', () => {
@@ -1160,6 +1297,38 @@ function app() {
     handleMqttMessage(topic, muatan) { 
       const cmd = topic.substring(topic.lastIndexOf('/')+1); 
       if(cmd === 'respStatus') this.applyNetworkScope(parseStatusJson(muatan)); 
+      if(cmd === 'respLogin') {
+        const parsedLogin = parsePayloadKontrol(muatan);
+        const pending = this.loginPending;
+        if (pending) {
+          const ok = toBool(parsedLogin.ok);
+          if (ok) {
+            pending.resolve(parsedLogin);
+          } else {
+            pending.reject(new Error(parsedLogin.error || 'Login ditolak.'));
+          }
+        }
+        if (toBool(parsedLogin.ok)) {
+          this.loginRole = `${parsedLogin.role || ''}`.trim() || this.loginRole;
+        }
+        this.clearLoginPending();
+      }
+      if(cmd === 'respAuth') {
+        const parsedAuth = parsePayloadKontrol(muatan);
+        const pending = this.authPasswordPending;
+        if (pending) {
+          const ok = toBool(parsedAuth.ok);
+          if (ok) {
+            pending.resolve(parsedAuth);
+          } else {
+            pending.reject(new Error(parsedAuth.error || 'Gagal mengubah password.'));
+          }
+        }
+        this.clearAuthPasswordPending();
+        if (toBool(parsedAuth.ok)) {
+          this.showToast(parsedAuth.message || 'Password admin berhasil diubah.');
+        }
+      }
       if(cmd === 'respSensor') {
         this.sensors = this.mergeSensors(parseSensorsJson(muatan));
         this.syncMoistureCalibrationFromSensors();
@@ -1230,6 +1399,8 @@ function app() {
       this.clearFuelCalibrationPolling();
       this.clearConnectionTimers();
       this.clearMqttConnectTimer();
+      this.clearLoginPending();
+      this.clearAuthPasswordPending();
       this.localPollingPaused = false;
       this.localFallbackNotified = false;
       if (this.mqttClient) {
@@ -1956,6 +2127,7 @@ function app() {
     openSettings() {
       this.showSettingsModal = true;
       this.syncLoRaChannelSetupFromNetwork();
+      this.resetAuthPasswordForm();
       if (this.isLocalConnected) {
         this.settingsTab = 'maintenance';
         this.loadWifiScan();
@@ -1970,6 +2142,61 @@ function app() {
       this.$nextTick(() => this.scrollSettingsTabTop());
       if (tab === 'maintenance') {
         this.loadWifiScan();
+      }
+    },
+    resetAuthPasswordForm() {
+      this.authPasswordForm.currentPassword = '';
+      this.authPasswordForm.newPassword = '';
+      this.authPasswordForm.confirmPassword = '';
+      this.authPasswordForm.error = '';
+      this.authPasswordForm.showCurrentPassword = false;
+      this.authPasswordForm.showNewPassword = false;
+    },
+    async changeAdminPassword() {
+      this.authPasswordForm.error = '';
+      const username = this.loginUiId;
+      const currentPassword = `${this.authPasswordForm.currentPassword || ''}`.trim();
+      const newPassword = `${this.authPasswordForm.newPassword || ''}`.trim();
+      const confirmPassword = `${this.authPasswordForm.confirmPassword || ''}`.trim();
+      if (!this.canEditAdminPassword) {
+        this.authPasswordForm.error = 'Hanya admin yang bisa mengubah password.';
+        return;
+      }
+      if (!username) {
+        this.authPasswordForm.error = 'UI ID belum tersedia.';
+        return;
+      }
+      if (!currentPassword || !newPassword || !confirmPassword) {
+        this.authPasswordForm.error = 'Lengkapi password lama dan password baru.';
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        this.authPasswordForm.error = 'Password baru dan konfirmasi tidak sama.';
+        return;
+      }
+      if (newPassword.length < 6) {
+        this.authPasswordForm.error = 'Password baru minimal 6 karakter.';
+        return;
+      }
+      try {
+        let result;
+        if (this.mode === 'local') {
+          result = await this.sendLocalAdminPasswordChange(username, currentPassword, newPassword);
+        } else {
+          result = await this.sendMqttAdminPasswordChange(username, currentPassword, newPassword);
+        }
+        if (!result?.ok) {
+          throw new Error(result?.error || 'Gagal mengubah password admin.');
+        }
+        this.authPasswordForm.currentPassword = '';
+        this.authPasswordForm.newPassword = '';
+        this.authPasswordForm.confirmPassword = '';
+        this.showToast(result?.message || 'Password admin berhasil diubah.');
+      } catch (error) {
+        this.authPasswordForm.error = `${error?.message || error || 'Gagal mengubah password admin.'}`;
+        this.showToast(this.authPasswordForm.error, 'error');
+      } finally {
+        this.clearAuthPasswordPending();
       }
     },
     scrollSettingsTabTop() {
