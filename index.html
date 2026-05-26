@@ -249,7 +249,7 @@
               <div class="task-card-header" @click="openTaskInfo(task)" x-text="getTaskLabel(task)"></div>
               <div class="task-card-body">
                 <button class="task-main-btn"
-                  :class="getTaskButtonClass(task)"
+                  :class="{ 'status-btn-on': task.actuatorActive && isActuatorOnline(task), 'status-btn-off': !task.actuatorActive && isActuatorOnline(task), 'status-btn-offline': !isActuatorOnline(task), 'status-btn-on-manual': task.actuatorActive && isActuatorOnline(task) && getTaskTriggerSource(task) === 'manual', 'status-btn-on-auto': task.actuatorActive && isActuatorOnline(task) && getTaskTriggerSource(task) !== 'manual' }"
                   @click="runTask(task.index, $event.currentTarget)"
                   :disabled="!isActuatorOnline(task) || actionInFlight"
                   :aria-label="`${getSensorLabel(task)} ${formatNilaiSensor(task.lastSensorValue)}${getSensorUnit(task) ? ` ${getSensorUnit(task)}` : ''}`">

@@ -495,7 +495,7 @@ input, textarea, [contenteditable="true"] {
   }
   .label-top {
     max-width: 92%;
-    font-size: 0.58rem;
+    font-size: 0.5rem;
     margin-bottom: 0;
   }
   .task-main-btn .value {
@@ -765,8 +765,10 @@ input, textarea, [contenteditable="true"] {
   -webkit-mask: radial-gradient(transparent 65%, black 67%);
   mask: radial-gradient(transparent 65%, black 67%);
   opacity: 0.1;
-  filter: blur(1px);
+  filter: none;
   transition: opacity 0.3s;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .glow-ring::before {
@@ -780,7 +782,7 @@ input, textarea, [contenteditable="true"] {
 
 .status-btn-on .glow-ring {
   opacity: 0.8;
-  filter: blur(1.5px);
+  filter: none;
   animation: rotate-glow 10s linear infinite;
 }
 
@@ -798,7 +800,7 @@ input, textarea, [contenteditable="true"] {
 
 .label-top {
   max-width: calc(100% - 1rem);
-  font-size: 0.62rem;
+  font-size: 0.54rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
@@ -898,36 +900,36 @@ input, textarea, [contenteditable="true"] {
 .status-btn-on {
   border-color: #00ff45 !important;
   box-shadow:
-    inset 0 0 28px rgba(0, 255, 69, 0.38),
-    0 0 22px rgba(0, 255, 69, 0.78),
-    0 10px 56px rgba(0, 255, 69, 0.52) !important;
+    inset 0 0 18px rgba(0, 255, 69, 0.24),
+    0 0 12px rgba(0, 255, 69, 0.68),
+    0 8px 34px rgba(0, 255, 69, 0.32) !important;
 }
 
 .status-btn-on .glow-ring {
   opacity: 1;
-  filter: blur(0.35px) drop-shadow(0 0 8px #00ff45) drop-shadow(0 0 18px rgba(0, 255, 69, 0.9));
+  filter: drop-shadow(0 0 4px rgba(0, 255, 69, 0.9));
 }
 
 .status-btn-on-auto .glow-ring {
-  background: conic-gradient(#00ff45 100%, transparent 0) !important;
+  background: #00ff45 !important;
   animation: none !important;
   transform: none !important;
 }
 
 .status-btn-on-manual .glow-ring {
-  background: conic-gradient(#ff002b var(--progress, 0%), #00ff45 0 100%) !important;
+  background: conic-gradient(from -90deg, #ff002b 0 var(--progress, 0%), #00ff45 var(--progress, 0%) 100%) !important;
   animation: rotate-glow 10s linear infinite;
-  filter: blur(0.35px) drop-shadow(0 0 8px #00ff45) drop-shadow(0 0 12px rgba(255, 0, 43, 0.85));
+  filter: drop-shadow(0 0 4px rgba(0, 255, 69, 0.85));
 }
 
 .status-btn-on .value,
 .status-btn-on .unit,
 .status-btn-on .label-top,
 .status-btn-on .label-bottom {
-  color: #00ff45 !important;
+  color: #ffffff !important;
   opacity: 1;
   font-weight: 900;
-  text-shadow: 0 0 10px rgba(0, 255, 69, 0.95), 0 0 22px rgba(0, 255, 69, 0.72) !important;
+  text-shadow: none !important;
 }
 
 .status-btn-on .label-bottom {
@@ -943,40 +945,48 @@ input, textarea, [contenteditable="true"] {
 .status-btn-off {
   border-color: #ff002b !important;
   box-shadow:
-    inset 0 0 30px rgba(255, 0, 43, 0.36),
-    0 0 24px rgba(255, 0, 43, 0.82),
-    0 10px 56px rgba(255, 0, 43, 0.56) !important;
+    inset 0 0 18px rgba(255, 0, 43, 0.24),
+    0 0 12px rgba(255, 0, 43, 0.72),
+    0 8px 34px rgba(255, 0, 43, 0.34) !important;
 }
 
 .status-btn-off .glow-ring {
-  background: conic-gradient(#ff002b 100%, transparent 0) !important;
+  background: #ff002b !important;
   opacity: 1;
-  filter: blur(0.35px) drop-shadow(0 0 10px #ff002b) drop-shadow(0 0 22px rgba(255, 0, 43, 0.9));
+  filter: drop-shadow(0 0 4px rgba(255, 0, 43, 0.95));
   animation: pulse-red-ring 1.45s ease-in-out infinite;
 }
 
 @keyframes pulse-red-ring {
-  0%, 100% {
-    filter: blur(0.35px) drop-shadow(0 0 9px #ff002b) drop-shadow(0 0 18px rgba(255, 0, 43, 0.82));
-  }
-  50% {
-    filter: blur(0.35px) drop-shadow(0 0 16px #ff002b) drop-shadow(0 0 34px rgba(255, 0, 43, 1));
-  }
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 1; }
 }
 
 .status-btn-off .value,
 .status-btn-off .unit,
 .status-btn-off .label-top,
 .status-btn-off .label-bottom {
-  color: #ff002b !important;
+  color: #ffffff !important;
   opacity: 1;
   font-weight: 900;
-  text-shadow: 0 0 10px rgba(255, 0, 43, 0.95), 0 0 22px rgba(255, 0, 43, 0.72) !important;
+  text-shadow: none !important;
 }
 
 .status-btn-off .label-bottom {
   border-color: rgba(255, 0, 43, 0.62) !important;
   background: rgba(255, 0, 43, 0.16) !important;
+}
+
+.theme-light .status-btn-on .value,
+.theme-light .status-btn-on .unit,
+.theme-light .status-btn-on .label-top,
+.theme-light .status-btn-on .label-bottom,
+.theme-light .status-btn-off .value,
+.theme-light .status-btn-off .unit,
+.theme-light .status-btn-off .label-top,
+.theme-light .status-btn-off .label-bottom {
+  color: #020617 !important;
+  text-shadow: none !important;
 }
 
 .status-btn-offline {
@@ -1215,6 +1225,36 @@ input, textarea, [contenteditable="true"] {
   color: #475569 !important;
   background: rgba(148, 163, 184, 0.18);
   border-color: rgba(148, 163, 184, 0.24);
+}
+
+.theme-light .status-btn-on {
+  box-shadow:
+    inset 0 0 10px rgba(0, 255, 69, 0.14),
+    0 0 0 2px rgba(0, 255, 69, 0.18) !important;
+}
+
+.theme-light .status-btn-off {
+  box-shadow:
+    inset 0 0 10px rgba(255, 0, 43, 0.14),
+    0 0 0 2px rgba(255, 0, 43, 0.18) !important;
+}
+
+.theme-light .status-btn-on .glow-ring,
+.theme-light .status-btn-on-manual .glow-ring,
+.theme-light .status-btn-off .glow-ring {
+  filter: none !important;
+}
+
+.theme-light .status-btn-on .value,
+.theme-light .status-btn-on .unit,
+.theme-light .status-btn-on .label-top,
+.theme-light .status-btn-on .label-bottom,
+.theme-light .status-btn-off .value,
+.theme-light .status-btn-off .unit,
+.theme-light .status-btn-off .label-top,
+.theme-light .status-btn-off .label-bottom {
+  color: #020617 !important;
+  text-shadow: none !important;
 }
 .theme-light .task-main-btn .spinner {
   background: rgba(255, 255, 255, 0.55);
