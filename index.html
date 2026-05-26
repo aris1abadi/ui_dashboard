@@ -249,7 +249,7 @@
               <div class="task-card-header" @click="openTaskInfo(task)" x-text="getTaskLabel(task)"></div>
               <div class="task-card-body">
                 <button class="task-main-btn"
-                  :class="{ 'status-btn-on': task.actuatorActive && isActuatorOnline(task), 'status-btn-off': !task.actuatorActive && isActuatorOnline(task), 'status-btn-offline': !isActuatorOnline(task) }"
+                  :class="getTaskButtonClass(task)"
                   @click="runTask(task.index, $event.currentTarget)"
                   :disabled="!isActuatorOnline(task) || actionInFlight"
                   :aria-label="`${getSensorLabel(task)} ${formatNilaiSensor(task.lastSensorValue)}${getSensorUnit(task) ? ` ${getSensorUnit(task)}` : ''}`">
@@ -521,6 +521,11 @@
 
           <p class="login-error mt-3" :class="{'visible': authPasswordForm.error}" x-text="authPasswordForm.error"
             role="status" aria-live="polite"></p>
+          <div class="flex justify-end mt-4">
+            <button type="button" @click="changeAdminPassword()" class="btn primary" :disabled="!canEditAdminPassword">
+              Simpan Password Admin
+            </button>
+          </div>
         </div>
       </div>
 
@@ -728,10 +733,6 @@
         <button x-show="settingsTab === 'settings' && !(mode === 'mqtt' && connected) && !showMaintenanceTab && mode !== 'mqtt'"
           @click="saveAndReconnect"
           class="btn primary">Simpan & Sambungkan</button>
-        <button x-show="settingsTab === 'setup'" @click="changeAdminPassword()"
-          class="btn primary" :disabled="!canEditAdminPassword">
-          Simpan Password Admin
-        </button>
         <button x-show="settingsTab === 'maintenance' && showMaintenanceTab" @click="showSettingsModal = false"
           class="btn primary">Tutup</button>
       </div>

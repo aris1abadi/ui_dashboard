@@ -2117,6 +2117,13 @@ function app() {
 
       return 'manual';
     },
+    getTaskButtonClass(task) {
+      if (!task || !this.isActuatorOnline(task)) return 'status-btn-offline';
+      if (!task.actuatorActive) return 'status-btn-off';
+      const source = this.getTaskTriggerSource(task);
+      if (source === 'manual') return 'status-btn-on status-btn-on-manual';
+      return 'status-btn-on status-btn-on-auto';
+    },
     getTaskStatusLabel(task) { 
       if (!task) return 'Tidak diketahui';
       if (!this.isActuatorOnline(task)) return 'Offline'; 
@@ -2127,10 +2134,9 @@ function app() {
       if (source === 'threshold') return 'ON(auto)';
       return 'ON'; 
     },
-    getTaskStatusClass(task) { 
-      if (!task) return 'status-offline';
-      if (!this.isActuatorOnline(task)) return 'status-offline'; 
-      return task.actuatorActive ? 'status-on' : 'status-off'; 
+    getTaskStatusClass(task) {
+      if (!task || !this.isActuatorOnline(task)) return 'status-offline';
+      return task.actuatorActive ? 'status-on' : 'status-off';
     },
     prevTask() { this.currentTaskIndex--; }, nextTask() { this.currentTaskIndex++; },
     openTaskInfo(task) { 

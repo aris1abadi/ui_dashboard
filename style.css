@@ -894,84 +894,105 @@ input, textarea, [contenteditable="true"] {
   }
 }
 
-/* Status Colors (Outline) */
-.status-btn-on { 
-  border-color: #777 !important; 
-  box-shadow: 
-    inset 0 0 30px rgba(37, 244, 184, 0.25),
-    0 10px 60px rgba(37, 244, 184, 0.45); 
+/* Status Colors (fixed, theme independent) */
+.status-btn-on {
+  border-color: #00ff45 !important;
+  box-shadow:
+    inset 0 0 28px rgba(0, 255, 69, 0.38),
+    0 0 22px rgba(0, 255, 69, 0.78),
+    0 10px 56px rgba(0, 255, 69, 0.52) !important;
 }
+
 .status-btn-on .glow-ring {
-  border-top-color: #25f4b8;
   opacity: 1;
-  filter: blur(0.5px) drop-shadow(0 0 8px #25f4b8);
-  border-width: 6px;
+  filter: blur(0.35px) drop-shadow(0 0 8px #00ff45) drop-shadow(0 0 18px rgba(0, 255, 69, 0.9));
 }
-.status-btn-on .value { 
-  color: #25f4b8 !important; 
-  text-shadow: 0 0 20px rgba(37, 244, 184, 0.7);
-  font-weight: 800;
+
+.status-btn-on-auto .glow-ring {
+  background: conic-gradient(#00ff45 100%, transparent 0) !important;
+  animation: none !important;
+  transform: none !important;
 }
-.status-btn-on .unit {
-  color: #25f4b8;
-  opacity: 0.9;
-  font-weight: 800;
+
+.status-btn-on-manual .glow-ring {
+  background: conic-gradient(#ff002b var(--progress, 0%), #00ff45 0 100%) !important;
+  animation: rotate-glow 10s linear infinite;
+  filter: blur(0.35px) drop-shadow(0 0 8px #00ff45) drop-shadow(0 0 12px rgba(255, 0, 43, 0.85));
 }
+
+.status-btn-on .value,
+.status-btn-on .unit,
 .status-btn-on .label-top,
 .status-btn-on .label-bottom {
-  color: #25f4b8;
+  color: #00ff45 !important;
   opacity: 1;
   font-weight: 900;
-  text-shadow: 0 0 8px rgba(37, 244, 184, 0.5);
+  text-shadow: 0 0 10px rgba(0, 255, 69, 0.95), 0 0 22px rgba(0, 255, 69, 0.72) !important;
 }
 
-.status-btn-off { 
-  border-color: #666 !important; 
-  box-shadow: 
-    inset 0 0 20px rgba(255, 107, 107, 0.1),
-    0 5px 30px rgba(0, 0, 0, 0.4);
+.status-btn-on .label-bottom {
+  border-color: rgba(0, 255, 69, 0.62) !important;
+  background: rgba(0, 255, 69, 0.16) !important;
 }
+
+.status-btn-on-manual .label-bottom {
+  border-color: rgba(255, 0, 43, 0.58) !important;
+  background: rgba(255, 0, 43, 0.16) !important;
+}
+
+.status-btn-off {
+  border-color: #ff002b !important;
+  box-shadow:
+    inset 0 0 30px rgba(255, 0, 43, 0.36),
+    0 0 24px rgba(255, 0, 43, 0.82),
+    0 10px 56px rgba(255, 0, 43, 0.56) !important;
+}
+
 .status-btn-off .glow-ring {
-  background: #ff6b6b;
-  opacity: 0.2;
-  filter: blur(1.5px);
-  animation: pulse-glow 2s ease-in-out infinite;
+  background: conic-gradient(#ff002b 100%, transparent 0) !important;
+  opacity: 1;
+  filter: blur(0.35px) drop-shadow(0 0 10px #ff002b) drop-shadow(0 0 22px rgba(255, 0, 43, 0.9));
+  animation: pulse-red-ring 1.45s ease-in-out infinite;
 }
 
-@keyframes pulse-glow {
-  0%, 100% { opacity: 0.1; }
-  50% { opacity: 0.4; }
+@keyframes pulse-red-ring {
+  0%, 100% {
+    filter: blur(0.35px) drop-shadow(0 0 9px #ff002b) drop-shadow(0 0 18px rgba(255, 0, 43, 0.82));
+  }
+  50% {
+    filter: blur(0.35px) drop-shadow(0 0 16px #ff002b) drop-shadow(0 0 34px rgba(255, 0, 43, 1));
+  }
 }
 
-.status-btn-off .value { 
-  color: #ff6b6b !important; 
-  text-shadow: 0 0 15px rgba(255, 107, 107, 0.5);
-  font-weight: 800;
-}
-.status-btn-off .unit {
-  color: #ff6b6b;
-  opacity: 0.6;
-  font-weight: 800;
-}
+.status-btn-off .value,
+.status-btn-off .unit,
 .status-btn-off .label-top,
 .status-btn-off .label-bottom {
-  color: #ff6b6b;
+  color: #ff002b !important;
   opacity: 1;
   font-weight: 900;
-  text-shadow: 0 0 8px rgba(255, 107, 107, 0.4);
+  text-shadow: 0 0 10px rgba(255, 0, 43, 0.95), 0 0 22px rgba(255, 0, 43, 0.72) !important;
 }
 
-.status-btn-offline { 
-  border-color: #555 !important; 
-  cursor: not-allowed; 
-  opacity: 0.8; 
+.status-btn-off .label-bottom {
+  border-color: rgba(255, 0, 43, 0.62) !important;
+  background: rgba(255, 0, 43, 0.16) !important;
+}
+
+.status-btn-offline {
+  border-color: #555 !important;
+  cursor: not-allowed;
+  opacity: 0.8;
 }
 .status-btn-offline .glow-ring {
   display: none;
 }
-.status-btn-offline .value, .status-btn-offline .unit, .status-btn-offline .label-top, .status-btn-offline .label-bottom {
+.status-btn-offline .value,
+.status-btn-offline .unit,
+.status-btn-offline .label-top,
+.status-btn-offline .label-bottom {
   color: #666 !important;
-  text-shadow: none;
+  text-shadow: none !important;
   font-weight: 800;
 }
 
