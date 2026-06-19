@@ -87,6 +87,29 @@ self.addEventListener('fetch', (event) => {
   }
 });
 
+// Menangani pesan proxy dari halaman (fallback untuk mixed content)
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'proxy-fetch' && event.data?.url) {
+    const port = event.ports?.[0];
+    if (!port) return;
+    const { url, method = 'GET', body } = event.data;
+    const fetchOpts = { mode: 'cors', credentials: 'omit' };
+    if (method !== 'GET') {
+      fetchOpts.method = method;
+      fetchOpts.headers = { 'Content-Type': 'application/json' };
+      if (body) fetchOpts.body = typeof body === 'string' ? body : JSON.stringify(body);
+    }
+    fetch(url, fetchOpts)
+      .then(async (response) => {
+        const text = await response.text();
+        let data = null;
+        try { data = text ? JSON.parse(text) : null; } catch { data = text || null; }
+        port.postMessage(data);
+      })
+      .catch(() => port.postMessage(null));
+  }
+});
+
 async function proxyLocalRequest(request) {
   try {
     // Clone request before sending karena body hanya bisa dibaca sekali

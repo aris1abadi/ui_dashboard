@@ -911,25 +911,11 @@ function app() {
       this.showToast(message || (this.connectionPreference === 'local' ? 'Masuk lokal berhasil.' : 'Masuk online berhasil.'));
     },
     async sendLocalLogin(username, password) {
-      const base = this.config.localBaseUrl.replace(/\/$/, '');
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-      try {
-        const response = await fetch(`${base}/api/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
-          signal: controller.signal
-        });
-        return response.json().catch(() => ({}));
-      } catch (error) {
-        if (error?.name === 'AbortError') {
-          throw new Error('UI tidak bisa terhubung ke kontroller.');
-        }
-        throw error;
-      } finally {
-        clearTimeout(timeout);
-      }
+      const result = await this.localFetch('/api/login', {
+        method: 'POST', timeoutMs: 10000, body: JSON.stringify({ username, password })
+      });
+      if (!result) throw new Error('UI tidak bisa terhubung ke kontroller.');
+      return result;
     },
     sendMqttLogin(username, password) {
       return new Promise((resolve, reject) => {
@@ -1226,8 +1212,7 @@ function app() {
       this.showToast('Koneksi lokal tidak merespons.', 'error');
     },
     async tryLocalConnection() {
-      const base = this.config.localBaseUrl.replace(/\/$/, '');
-      const data = await ambilJsonDenganBatasWaktu(`${base}/api/status`, null, 2000);
+      const data = await this.localFetch('/api/status', { timeoutMs: 2000 });
       if (!data) return false;
       this.applyNetworkScope(parseStatusJson(data));
       return true;
@@ -1432,16 +1417,45 @@ function app() {
     },
 
     // Data & aksi API
+    async localFetch(path, options = {}) {
+      const base = this.config.localBaseUrl.replace(/\/$/, '');
+      const url = `${base}${path}`;
+      const { method = 'GET', body, timeoutMs = 3000 } = options;
+      
+      // Coba fetch langsung dulu
+      const result = await ambilJsonDenganBatasWaktu(url, Symbol('retry'), timeoutMs, 
+        method === 'GET' ? {} : { method, headers: { 'Content-Type': 'application/json' }, body }
+      );
+      if (result !== Symbol('retry')) return result;
+      
+      // Fallback via Service Worker jika HTTPS
+      if (window.location.protocol === 'https:' && 'serviceWorker' in navigator) {
+        try {
+          const registration = await navigator.serviceWorker.ready;
+          if (!registration.active) return null;
+          const channel = new MessageChannel();
+          return new Promise((resolve) => {
+            const tid = setTimeout(() => resolve(null), timeoutMs);
+            channel.port1.onmessage = (e) => { clearTimeout(tid); resolve(e.data || null); };
+            registration.active.postMessage(
+              { type: 'proxy-fetch', url, method, body: method !== 'GET' ? body : undefined },
+              [channel.port2]
+            );
+          });
+        } catch { return null; }
+      }
+      return null;
+    },
     async refreshLocal() {
       const base = this.config.localBaseUrl.replace(/\/$/, '');
       try {
-        const dataJaringan = await ambilJsonDenganBatasWaktu(`${base}/api/status`, null, 2000);
+        const dataJaringan = await this.localFetch('/api/status', { timeoutMs: 2000 });
         if (!dataJaringan) return false;
         const jaringan = parseStatusJson(dataJaringan);
         const [sensorData, actuatorData, taskData] = await Promise.all([
-          ambilJsonDenganBatasWaktu(`${base}/api/sensors`, {}, 2500),
-          ambilJsonDenganBatasWaktu(`${base}/api/actuators`, {}, 2500),
-          ambilJsonDenganBatasWaktu(`${base}/api/tasks`, {}, 2500)
+          this.localFetch('/api/sensors', { timeoutMs: 2500 }),
+          this.localFetch('/api/actuators', { timeoutMs: 2500 }),
+          this.localFetch('/api/tasks', { timeoutMs: 2500 })
         ]);
         this.applyNetworkScope(jaringan);
         this.sensors = this.mergeSensors(parseSensorsJson(sensorData));
@@ -1511,30 +1525,13 @@ function app() {
       this.mqttClient.publish(topic, payload); 
     },
     async sendLocalCommand(command, legacyArgs = null, timeoutMs = 10000) {
-      const base = this.config.localBaseUrl.replace(/\/$/, '');
       const payload = typeof command === 'string' ? bangunPayloadPerintahLama(command, legacyArgs || []) : JSON.stringify(command);
-      const pengendali = new AbortController();
-      const idBatasWaktu = setTimeout(() => pengendali.abort(), timeoutMs);
-      try {
-        const res = await fetch(`${base}/api/cmd`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: payload,
-          signal: pengendali.signal
-        });
-        clearTimeout(idBatasWaktu);
-        const text = await res.text();
-        let parsed = null;
-        try { parsed = text ? JSON.parse(text) : null; } catch { parsed = null; }
-        if (!res.ok || parsed?.ok === false) {
-        return { ok: false, error: parsed?.error || parsed?.message || text || 'Perintah gagal', data: parsed };
-        }
-        return { ok: true, data: parsed, text };
-      } catch (error) {
-        clearTimeout(idBatasWaktu);
-        const message = error && error.name === 'AbortError' ? 'Batas waktu habis' : 'Perintah gagal';
-        return { ok: false, error: message };
-      }
+      const result = await this.localFetch('/api/cmd', {
+        method: 'POST', timeoutMs, body: payload
+      });
+      if (!result) return { ok: false, error: 'Perintah gagal' };
+      const ok = result.ok !== false;
+      return { ok, data: result, text: JSON.stringify(result) };
     },
     async sendActuator(index, action, tombol) { if (!this.beginAction(tombol)) return; if (this.mode === 'local') { const duration = action === 'on' ? this.config.manualDurationMs : 0; const res = await this.sendLocalCommand({ cmd: 'setActuator', index, action, durationMs: duration }); if (res.ok) await this.refreshLocal(); else this.showToast('Gagal mengirim perintah.', 'error'); this.endAction(); } else { this.publishCommand({ cmd: 'setActuator', index, action, durationMs: this.config.manualDurationMs }); } },
     async runTask(index, tombol) { if (!this.beginAction(tombol)) return; this.loadingTaskIndex = index; if (this.mode === 'local') { const res = await this.sendLocalCommand({ cmd: 'runTask', index }); if(res.ok) await this.refreshLocal(); this.endAction(); } else { this.publishCommand({ cmd: 'runTask', index }); } },
