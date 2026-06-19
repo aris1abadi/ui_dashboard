@@ -185,6 +185,7 @@ input, textarea, [contenteditable="true"] {
 }
 
 .login-card {
+  position: relative;
   background: var(--card-bg);
   padding: 2.5rem;
   border-radius: 1.5rem;
@@ -192,6 +193,44 @@ input, textarea, [contenteditable="true"] {
   width: 100%;
   max-width: 400px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+}
+
+.login-mqtt-credential-btn {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 2.2rem;
+  height: 2.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.login-mqtt-credential-btn:hover,
+.login-mqtt-credential-btn:focus-visible {
+  color: var(--primary);
+  border-color: rgba(37, 244, 184, 0.35);
+  background: rgba(37, 244, 184, 0.08);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.login-mqtt-credential-btn svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: currentColor;
+}
+
+.theme-light .login-mqtt-credential-btn {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.65);
+  color: #475569;
 }
 
 .login-card h2 {
@@ -1120,7 +1159,45 @@ input, textarea, [contenteditable="true"] {
   color: var(--text-strong);
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
 }
-.theme-light .login-card h2 {
+.theme-light .login-mqtt-credential-btn {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 2.2rem;
+  height: 2.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.login-mqtt-credential-btn:hover,
+.login-mqtt-credential-btn:focus-visible {
+  color: var(--primary);
+  border-color: rgba(37, 244, 184, 0.35);
+  background: rgba(37, 244, 184, 0.08);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.login-mqtt-credential-btn svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: currentColor;
+}
+
+.theme-light .login-mqtt-credential-btn {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.65);
+  color: #475569;
+}
+
+.login-card h2 {
   color: var(--text-strong);
 }
 .theme-light .login-kontrol-button {
@@ -1690,6 +1767,44 @@ html.theme-light body.has-custom-bg .status-inline.badge-info .status-inline-ico
   overflow-y: auto;
 }
 
+.touch-sensitivity-row {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 0.75rem;
+  padding: 0.9rem;
+}
+
+.touch-sensitivity-head,
+.touch-sensitivity-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.touch-sensitivity-head {
+  margin-bottom: 0.75rem;
+}
+
+.touch-sensitivity-footer {
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.touch-scale-label {
+  min-width: 2.5rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.theme-light .touch-sensitivity-row {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.03);
+}
+
 .modal-card.credential .modal-footer {
   gap: 0.75rem;
 }
@@ -1708,7 +1823,7 @@ html.theme-light body.has-custom-bg .status-inline.badge-info .status-inline-ico
     width: min(100vw - 1rem, 480px);
   }
 
-  .modal-card.credential .modal-footer {
+.modal-card.credential .modal-footer {
     flex-direction: column-reverse;
   }
 

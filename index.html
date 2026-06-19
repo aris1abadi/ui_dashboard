@@ -22,6 +22,13 @@
   <div x-show="!isAuthenticated" x-transition.opacity class="login-screen" aria-modal="true" role="dialog"
     tabindex="-1">
     <form @submit.prevent="attemptLogin" class="login-card">
+      <button type="button" class="login-mqtt-credential-btn"
+        @click="openMqttCredentialModal('Ubah username dan password MQTT, lalu simpan untuk menyambungkan ulang.')"
+        title="Ubah kredensial MQTT" aria-label="Ubah kredensial MQTT">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M15.5 7.5a4 4 0 1 1-2.6 7.04l-1.45 1.45H9.5v1.95H7.55v1.95H4.5V16.8l5.96-5.96A4 4 0 0 1 15.5 7.5Zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z" />
+        </svg>
+      </button>
       <h2>Selamat datang di</h2>
 
       <div class="login-kontrol-block">
@@ -643,6 +650,45 @@
             <p class="help"
               x-text="loraChannelSetup.stored ? `Tersimpan: ${loraChannelSetup.value}` : `Bawaan: ${loraChannelSetup.defaultValue}`">
             </p>
+          </div>
+        </div>
+        <div class="item" x-show="isLocalConnected">
+          <div class="form-group w-full">
+            <div class="flex justify-between items-center gap-3 mb-3">
+              <label class="m-0">Sensitivitas Touch Button</label>
+              <button type="button" class="btn ghost small" @click="loadTouchSensitivity()"
+                :disabled="touchSensitivityLoading || actionInFlight">Muat Ulang</button>
+            </div>
+            <div class="space-y-4" x-show="touchButtons.length > 0">
+              <template x-for="button in touchButtons" :key="button.index">
+                <div class="touch-sensitivity-row">
+                  <div class="touch-sensitivity-head">
+                    <span class="title" x-text="touchButtonLabel(button)"></span>
+                    <span class="tag" x-text="button.stored ? 'Tersimpan' : 'Bawaan'"></span>
+                  </div>
+                  <div class="flex items-center gap-3">
+                    <span class="touch-scale-label">Stabil</span>
+                    <input type="range" min="1" max="10" step="1" x-model.number="button.sensitivity" class="flex-1" />
+                    <span class="touch-scale-label">Peka</span>
+                  </div>
+                  <div class="touch-sensitivity-footer">
+                    <span class="help m-0" x-text="`Kepekaan ${button.sensitivity}/10 • delta ${touchSensitivityToThreshold(button.sensitivity)}`"></span>
+                    <div class="flex gap-2">
+                      <button type="button" class="btn ghost small" @click="resetTouchSensitivity(button)"
+                        :disabled="actionInFlight">Reset</button>
+                      <button type="button" class="btn primary small" @click="saveTouchSensitivity(button)"
+                        :disabled="actionInFlight">Simpan</button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+            <p class="help" x-show="touchButtons.length === 0"
+              x-text="touchSensitivityLoading ? 'Membaca sensitivitas touch...' : 'Tekan Muat Ulang untuk membaca sensitivitas touch dari kontroler.'"></p>
+            <div class="flex justify-end mt-3" x-show="touchButtons.length > 0">
+              <button type="button" class="btn ghost small" @click="resetTouchSensitivity()"
+                :disabled="actionInFlight">Reset Semua</button>
+            </div>
           </div>
         </div>
         <div class="item">

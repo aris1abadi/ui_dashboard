@@ -305,6 +305,7 @@ function app() {
     timeForm: { date: '', time: '' },
     wifiSetup: { ssid: '', pass: '', auth: '', file: null, firmwareName: '' },
     loraChannelSetup: { value: 4, defaultValue: 4, stored: false },
+    touchButtons: [], touchSensitivityLoading: false,
     wifiScanResults: [], wifiScanLoading: false, wifiScanError: '', wifiScanAt: null, wifiScanFilter: 'all',
     deepSleep: { nodeId: null, intervalSec: 60 },
     // State log
@@ -2155,6 +2156,7 @@ function app() {
       if (this.isLocalConnected) {
         this.settingsTab = 'maintenance';
         this.loadWifiScan();
+        this.loadTouchSensitivity();
       } else if (this.settingsTab === 'maintenance') {
         this.settingsTab = 'settings';
       }
@@ -2166,6 +2168,7 @@ function app() {
       this.$nextTick(() => this.scrollSettingsTabTop());
       if (tab === 'maintenance') {
         this.loadWifiScan();
+        this.loadTouchSensitivity();
       }
     },
     resetAuthPasswordForm() {
@@ -3091,6 +3094,101 @@ function app() {
         this.syncLoRaChannelSetupFromNetwork();
       } catch (error) {
         this.showToast(error?.message || 'Gagal menyimpan channel LoRa.', 'error');
+      } finally {
+        this.endAction();
+      }
+    },
+
+    touchThresholdToSensitivity(threshold) {
+      const value = Math.max(400, Math.min(2200, Math.round(toNumber(threshold, 1200))));
+      return Math.max(1, Math.min(10, Math.round((2200 - value) / 200) + 1));
+    },
+    touchSensitivityToThreshold(sensitivity) {
+      const value = Math.max(1, Math.min(10, Math.round(toNumber(sensitivity, 6))));
+      return 2200 - ((value - 1) * 200);
+    },
+    touchButtonLabel(button) {
+      const name = `${button?.name || ''}`.toLowerCase();
+      if (name === 'water') return 'Water';
+      if (name === 'blower') return 'Blower';
+      if (name === 'humidifier' || name === 'humid') return 'Humidifier';
+      return `Button ${Number(button?.index ?? 0) + 1}`;
+    },
+    async loadTouchSensitivity() {
+      if (!this.isLocalConnected || this.touchSensitivityLoading) return;
+      this.touchSensitivityLoading = true;
+      try {
+        const base = this.config.localBaseUrl.replace(/\/$/, '');
+        const res = await fetch(`${base}/api/touch`, { cache: 'no-store' });
+        const text = await res.text();
+        let parsed = null;
+        try { parsed = text ? JSON.parse(text) : null; } catch { parsed = null; }
+        if (!res.ok || parsed?.ok === false) throw new Error(parsed?.error || text || 'Gagal membaca sensitivitas touch');
+        this.touchButtons = (parsed?.buttons || []).map(button => {
+          const threshold = Math.round(toNumber(button.threshold, 1200));
+          return {
+            index: Number(button.index || 0),
+            name: button.name || '',
+            threshold,
+            defaultThreshold: Math.round(toNumber(button.defaultThreshold, 1200)),
+            stored: toBool(button.stored),
+            sensitivity: this.touchThresholdToSensitivity(threshold)
+          };
+        });
+      } catch (error) {
+        this.showToast(error?.message || 'Gagal membaca sensitivitas touch.', 'error');
+      } finally {
+        this.touchSensitivityLoading = false;
+      }
+    },
+    async saveTouchSensitivity(button) {
+      if (!this.isLocalConnected || !button) return;
+      const threshold = this.touchSensitivityToThreshold(button.sensitivity);
+      if (!this.beginAction()) return;
+      try {
+        const base = this.config.localBaseUrl.replace(/\/$/, '');
+        const body = new URLSearchParams();
+        body.set('index', String(button.index));
+        body.set('threshold', String(threshold));
+        const res = await fetch(`${base}/api/touch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body
+        });
+        const text = await res.text();
+        let parsed = null;
+        try { parsed = text ? JSON.parse(text) : null; } catch { parsed = null; }
+        if (!res.ok || parsed?.ok === false) throw new Error(parsed?.error || parsed?.message || text || 'Gagal menyimpan sensitivitas touch');
+        button.threshold = threshold;
+        button.stored = true;
+        this.showToast(`${this.touchButtonLabel(button)} disimpan.`);
+        await this.loadTouchSensitivity();
+      } catch (error) {
+        this.showToast(error?.message || 'Gagal menyimpan sensitivitas touch.', 'error');
+      } finally {
+        this.endAction();
+      }
+    },
+    async resetTouchSensitivity(button = null) {
+      if (!this.isLocalConnected) return;
+      if (!this.beginAction()) return;
+      try {
+        const base = this.config.localBaseUrl.replace(/\/$/, '');
+        const body = new URLSearchParams();
+        body.set('reset', button ? (button.name || String(button.index)) : 'all');
+        const res = await fetch(`${base}/api/touch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body
+        });
+        const text = await res.text();
+        let parsed = null;
+        try { parsed = text ? JSON.parse(text) : null; } catch { parsed = null; }
+        if (!res.ok || parsed?.ok === false) throw new Error(parsed?.error || text || 'Gagal reset sensitivitas touch');
+        this.showToast(button ? `${this.touchButtonLabel(button)} direset.` : 'Sensitivitas touch direset.');
+        await this.loadTouchSensitivity();
+      } catch (error) {
+        this.showToast(error?.message || 'Gagal reset sensitivitas touch.', 'error');
       } finally {
         this.endAction();
       }
