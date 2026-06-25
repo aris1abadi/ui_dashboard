@@ -1096,6 +1096,13 @@ function app() {
           this.connectionPreference = 'local';
           localStorage.setItem('karjo_ui_connection_mode', this.connectionPreference);
           this.stopKaConnections();
+          // Deteksi mixed content (HTTPS → HTTP)
+          if (window.location.protocol === 'https:') {
+            this.login.error = 'Mode lokal tidak bisa dari halaman HTTPS. Buka http://' +
+              this.config.localBaseUrl.replace(/^https?:\/\//, '') + '/ langsung di browser.';
+            this.showToast(this.login.error, 'error');
+            return;
+          }
           const localReady = await this.tryLocalConnection();
           if (!localReady) throw new Error('UI tidak bisa terhubung ke kontroller.');
           this.mode = 'local';
@@ -1421,30 +1428,16 @@ function app() {
       const base = this.config.localBaseUrl.replace(/\/$/, '');
       const url = `${base}${path}`;
       const { method = 'GET', body, timeoutMs = 3000 } = options;
-      
-      // Coba fetch langsung dulu
-      const result = await ambilJsonDenganBatasWaktu(url, Symbol('retry'), timeoutMs, 
-        method === 'GET' ? {} : { method, headers: { 'Content-Type': 'application/json' }, body }
-      );
-      if (result !== Symbol('retry')) return result;
-      
-      // Fallback via Service Worker jika HTTPS
-      if (window.location.protocol === 'https:' && 'serviceWorker' in navigator) {
-        try {
-          const registration = await navigator.serviceWorker.ready;
-          if (!registration.active) return null;
-          const channel = new MessageChannel();
-          return new Promise((resolve) => {
-            const tid = setTimeout(() => resolve(null), timeoutMs);
-            channel.port1.onmessage = (e) => { clearTimeout(tid); resolve(e.data || null); };
-            registration.active.postMessage(
-              { type: 'proxy-fetch', url, method, body: method !== 'GET' ? body : undefined },
-              [channel.port2]
-            );
-          });
-        } catch { return null; }
+      const fetchOpts = method === 'GET' ? {} : { method, headers: { 'Content-Type': 'application/json' }, body };
+      try {
+        const pengendali = new AbortController();
+        const tid = setTimeout(() => pengendali.abort(), timeoutMs);
+        const res = await fetch(url, { cache: 'no-store', signal: pengendali.signal, ...fetchOpts });
+        clearTimeout(tid);
+        return res.ok ? await res.json().catch(() => null) : null;
+      } catch {
+        return null;
       }
-      return null;
     },
     async refreshLocal() {
       const base = this.config.localBaseUrl.replace(/\/$/, '');
@@ -2293,6 +2286,7 @@ function app() {
           if(res.ok) {
             this.refreshLocal();
             this.showTaskModal = false;
+            this.showAllTasksModal = false;
             this.showToast('Task tersimpan.');
           } else {
             this.showToast(res.error || 'Gagal menyimpan task.', 'error');
@@ -2308,6 +2302,7 @@ function app() {
         setTimeout(() => this.publishCommand('getTasks'), 500);
         this.showTaskModal = false;
         this.showToast('Task dikirim ke kontroler.');
+        this.endAction();
       }
     },
     openScheduleList(taskIndex) { this.scheduleListTaskIndex = taskIndex; this.showScheduleListModal = true; },
