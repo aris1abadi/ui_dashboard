@@ -2301,6 +2301,7 @@ function app() {
         // Minta penyegaran data task
         setTimeout(() => this.publishCommand('getTasks'), 500);
         this.showTaskModal = false;
+        this.showAllTasksModal = false;
         this.showToast('Task dikirim ke kontroler.');
         this.endAction();
       }
