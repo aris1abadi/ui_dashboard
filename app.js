@@ -1518,14 +1518,15 @@ function app() {
       if (!this.mqttClient?.connected) return this.showToast('Koneksi online belum tersambung.', 'error'); 
       const cmd = typeof command === 'string' ? command : command?.cmd;
       if (!cmd) return;
-      const topic = `abadinet-in/${this.config.mqtt.kontrolId}/0/0/${cmd}`; 
+      const topic = `abadinet-in/${this.config.mqtt.kontrolId}/${this.config.uiId || '0'}/0/${cmd}`; 
       const payload = typeof command === 'string'
         ? bangunPayloadPerintahLama(cmd, legacyArgs || [])
         : bangunPayloadPerintah(cmd, Object.fromEntries(Object.entries(command).filter(([key]) => key !== 'cmd')));
       this.mqttClient.publish(topic, payload); 
     },
     async sendLocalCommand(command, legacyArgs = null, timeoutMs = 10000) {
-      const payload = typeof command === 'string' ? bangunPayloadPerintahLama(command, legacyArgs || []) : JSON.stringify(command);
+      const enriched = typeof command === 'string' ? command : { ...command, uiId: this.config?.uiId || '0' };
+      const payload = typeof command === 'string' ? bangunPayloadPerintahLama(command, legacyArgs || []) : JSON.stringify(enriched);
       const result = await this.localFetch('/api/cmd', {
         method: 'POST', timeoutMs, body: payload
       });
