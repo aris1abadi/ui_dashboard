@@ -785,6 +785,13 @@ function app() {
       this.applyTheme(savedTheme); 
       this.applyBackgroundImage(this.backgroundImage); 
       this.uiTimer = setInterval(() => { this.now = Date.now(); }, 1000);
+      // Hentikan update status saat modal task terbuka agar data lokal tidak tertimpa
+      this.$watch('showTaskModal', (val) => {
+        this.localPollingPaused = val || this.showAllTasksModal;
+      });
+      this.$watch('showAllTasksModal', (val) => {
+        this.localPollingPaused = val || this.showTaskModal;
+      });
     },
     loadConfig() { 
       const raw = localStorage.getItem('karjo_ui_config'); 
@@ -1347,7 +1354,7 @@ function app() {
         this.syncFuelCalibrationFromSensors();
       }
       if(cmd === 'respActuator') this.actuators = parseActuatorsJson(muatan); 
-      if(cmd === 'respTask') this.mergeTasks(parseTasksJson(muatan)); 
+      if(cmd === 'respTask' && !this.localPollingPaused) this.mergeTasks(parseTasksJson(muatan)); 
       if(cmd === 'respLogs' || cmd === 'logs') {
         const parsedLogs = parsePayloadKontrol(muatan);
         if (this.pendingLogDownloads && Object.keys(this.pendingLogDownloads).length > 0) {
@@ -1389,7 +1396,7 @@ function app() {
         }
       }, 5000);
     },
-    startMqttPolling() { this.clearRefresh(); this.refreshTimer = setInterval(() => { if (this.mqttClient?.connected) this.publishCommand({ cmd: 'getStatus' }); }, 20000); },
+    startMqttPolling() { this.clearRefresh(); this.refreshTimer = setInterval(() => { if (this.mqttClient?.connected && !this.localPollingPaused) this.publishCommand({ cmd: 'getStatus' }); }, 20000); },
     clearRefresh() { if (this.refreshTimer) clearInterval(this.refreshTimer); this.refreshTimer = null; },
     clearMoistureCalibrationPolling() {
       if (this.moistureCalibrationPollTimer) clearInterval(this.moistureCalibrationPollTimer);
@@ -2313,6 +2320,10 @@ function app() {
     },
     getTaskSchedules(idx) { 
       if (idx === undefined || idx === null) return [];
+      // Prioritaskan editingTask jika indeks cocok (jadwal yg baru ditambah/diedit lokal)
+      if (this.editingTask && this.editingTask.index === idx) {
+        return (this.editingTask.schedules || []).map(s => ({ ...s, taskIndex: idx }));
+      }
       const t = this.getTaskByIndex(idx); 
       return (t && t.schedules) ? t.schedules.map(s => ({ ...s, taskIndex: idx })) : []; 
     },
@@ -2326,13 +2337,12 @@ function app() {
     },
     submitSchedule() {
       if (!this.editingSchedule) return;
-      const task = this.getTaskByIndex(this.editingSchedule.taskIndex);
-      if (!task) {
+      if (!this.editingTask) {
         this.showToast('Task tidak ditemukan.', 'error');
         return;
       }
       
-      let schedules = [...(task.schedules || [])];
+      let schedules = [...(this.editingTask.schedules || [])];
       const jadwalBaru = { 
         pickupTime: this.editingSchedule.pickupTime, 
         durationMinutes: this.editingSchedule.durationMinutes, 
@@ -2344,70 +2354,17 @@ function app() {
       } else {
         schedules.push(jadwalBaru);
       }
-      const perintah = {
-        cmd: 'updateTask',
-        index: task.index,
-        task: {
-          label: this.getTaskLabel(task),
-          sensorNode: task.sensorNode || 0,
-          sensorChild: task.sensorChild || 0,
-          actuatorIndex: this.getFixedActuatorIndexForSensorKey(`${task.sensorNode}:${task.sensorChild}`) ?? (task.actuatorIndex || 0),
-          threshold: task.threshold || 0,
-          activateDurationMs: task.activateDurationMs || 0,
-          thresholdEnabled: !!task.thresholdEnabled,
-          schedules: schedules.map((schedule, slotIndex) => ({
-            pickupTime: schedule.pickupTime || schedule.time || '00:00',
-            durationMinutes: toNumber(schedule.durationMinutes ?? schedule.duration, 0),
-            enabled: schedule.enabled !== false,
-            slotIndex,
-            label: this.getTaskLabel(task)
-          }))
-        }
-      };
 
-      if (this.mode === 'local') {
-        this.sendLocalCommand(perintah).then(res => { if(res.ok) this.refreshLocal(); });
-      } else {
-        this.publishCommand(perintah);
-        setTimeout(() => this.publishCommand('getTasks'), 500);
-      }
+      this.editingTask.schedules = schedules;
       this.showScheduleModal = false;
       this.showToast('Jadwal tersimpan.');
     },
     deleteSchedule(taskIndex, slotIndex, tombol) {
       if (!confirm('Apakah Anda yakin ingin menghapus jadwal ini?')) return;
-      const task = this.getTaskByIndex(taskIndex);
-      if (!task || !task.schedules) return;
+      if (!this.editingTask || !this.editingTask.schedules) return;
       
-      let daftarJadwal = task.schedules.filter((_, i) => i !== slotIndex);
-      const perintah = {
-        cmd: 'updateTask',
-        index: task.index,
-        task: {
-          label: this.getTaskLabel(task),
-          sensorNode: task.sensorNode || 0,
-          sensorChild: task.sensorChild || 0,
-          actuatorIndex: this.getFixedActuatorIndexForSensorKey(`${task.sensorNode}:${task.sensorChild}`) ?? (task.actuatorIndex || 0),
-          threshold: task.threshold || 0,
-          activateDurationMs: task.activateDurationMs || 0,
-          thresholdEnabled: !!task.thresholdEnabled,
-          schedules: daftarJadwal.map((schedule, idx) => ({
-            pickupTime: schedule.pickupTime || schedule.time || '00:00',
-            durationMinutes: toNumber(schedule.durationMinutes ?? schedule.duration, 0),
-            enabled: schedule.enabled !== false,
-            slotIndex: idx,
-            label: this.getTaskLabel(task)
-          }))
-        }
-      };
-
-      if (this.mode === 'local') {
-        this.sendLocalCommand(perintah).then(res => { if(res.ok) this.refreshLocal(); });
-      } else {
-        this.publishCommand(perintah);
-        setTimeout(() => this.publishCommand('getTasks'), 500);
-      }
-      this.showToast('Jadwal dihapus.');
+      this.editingTask.schedules = this.editingTask.schedules.filter((_, i) => i !== slotIndex);
+      this.showToast('Jadwal akan dihapus saat task disimpan.');
     },
     openLogModal() { 
       this.showLogModal = true; 

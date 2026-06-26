@@ -841,7 +841,16 @@
     <div class="modal-card">
       <div class="modal-header">
         <h3 x-text="getTaskModalTitle()"></h3>
-        <button @click="showTaskModal = false" class="modal-close">×</button>
+        <div class="flex items-center gap-2">
+          <button @click="submitTask" class="btn ghost small p-1" :disabled="actionInFlight" title="Simpan Task">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+              <polyline points="17 21 17 13 7 13 7 21"/>
+              <polyline points="7 3 7 8 15 8"/>
+            </svg>
+          </button>
+          <button @click="showTaskModal = false" class="modal-close">×</button>
+        </div>
       </div>
       <div class="modal-body" x-show="editingTask">
         <div class="form-group"><label>Nama Task</label><input type="text" placeholder="Nama task"
@@ -887,8 +896,6 @@
           <p class="text-xs text-gray-500" x-text="getScheduleSummary(editingTask)"></p>
         </div>
       </div>
-      <div class="modal-footer"><button @click="submitTask" class="btn primary" :disabled="actionInFlight"
-          x-text="getTaskModalSubmitLabel()"></button></div>
     </div>
   </div>
 
@@ -1106,7 +1113,16 @@
     <div class="modal-card">
       <div class="modal-header">
         <h3 x-text="selectedTaskInfo ? `Setup ${getTaskLabel(selectedTaskInfo)}` : 'Setup Task'"></h3>
-        <button @click="showAllTasksModal = false" class="modal-close">×</button>
+        <div class="flex items-center gap-2">
+          <button @click="submitTask(); showAllTasksModal = false" class="btn ghost small p-1" :disabled="actionInFlight" title="Simpan Task">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+              <polyline points="17 21 17 13 7 13 7 21"/>
+              <polyline points="7 3 7 8 15 8"/>
+            </svg>
+          </button>
+          <button @click="showAllTasksModal = false" class="modal-close">×</button>
+        </div>
       </div>
 
       <div class="modal-body">
@@ -1207,10 +1223,6 @@
                   jadwal untuk mengubah.</p>
               </div>
 
-              <div class="modal-footer px-0 pb-0">
-                <button @click="submitTask(); showAllTasksModal = false" class="btn primary w-full"
-                  :disabled="actionInFlight">Simpan Task</button>
-              </div>
             </div>
         </template>
       </div>
