@@ -2480,6 +2480,17 @@ input[type="range"] {
   flex: 1;
 }
 
+.items-center {
+  align-items: center;
+}
+
+.time-sep {
+  padding: 0 0.25rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
 .help {
   font-size: 0.75rem;
   color: var(--text-muted);

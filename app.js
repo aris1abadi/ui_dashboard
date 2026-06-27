@@ -2331,8 +2331,11 @@ function app() {
     openScheduleForm(entry = null) {
       if (entry) {
         this.editingSchedule = { ...entry };
+        const parts = (this.editingSchedule.pickupTime || '08:00').split(':');
+        this.editingSchedule.pickupHour = parts[0] || '08';
+        this.editingSchedule.pickupMinute = parts[1] || '00';
       } else {
-        this.editingSchedule = { taskIndex: this.scheduleListTaskIndex, slotIndex: -1, pickupTime: '08:00', durationMinutes: 15, enabled: true };
+        this.editingSchedule = { taskIndex: this.scheduleListTaskIndex, slotIndex: -1, pickupTime: '08:00', pickupHour: '08', pickupMinute: '00', durationMinutes: 15, enabled: true };
       }
       this.showScheduleModal = true;
     },
@@ -2344,8 +2347,10 @@ function app() {
       }
       
       let schedules = [...(this.editingTask.schedules || [])];
+      const jam = (this.editingSchedule.pickupHour || '08').padStart(2, '0');
+      const menit = (this.editingSchedule.pickupMinute || '00').padStart(2, '0');
       const jadwalBaru = { 
-        pickupTime: this.editingSchedule.pickupTime, 
+        pickupTime: `${jam}:${menit}`, 
         durationMinutes: this.editingSchedule.durationMinutes, 
         enabled: this.editingSchedule.enabled 
       };
