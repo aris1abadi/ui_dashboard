@@ -310,6 +310,9 @@ function app() {
     deepSleep: { nodeId: null, intervalSec: 60 },
     // State log
     logs: [], logFilter: 'all', logPage: 0, logPerPage: 50, logCount: 0, logStorage: '0 B', logLoading: false, logChartMetric: 'temperature', logChartSelectedIndex: null, logChartHiddenSeries: [], logChartActivePoint: null, logDownload: { start: '', end: '', busy: false, error: '', progress: 0, status: '', totalPages: 0, processedPages: 0, mode: '', totalLogs: 0 }, pendingLogDownloads: {},
+    // Cache chart agar tidak rekomputasi tiap render
+    _cachedChartSeriesList: null,
+    _cachedChartSeriesVersion: 0,
     
     // Properti terhitung
     get paginatedTasks() { const start = this.taskPage * this.tasksPerPage; return this.tasks.slice(start, start + this.tasksPerPage); },
@@ -484,7 +487,7 @@ function app() {
       if (this.mode === 'mqtt') return '●';
       return '◌';
     },
-    get filteredLogs() { if (this.logFilter === 'all') return this.logs; const map = { sensor: 0, button: 1, status: 3 }; return this.logs.filter(e => e.type === map[this.logFilter]); },
+    get filteredLogs() { if (this.logFilter === 'all') return this.logs; const map = { sensor: 0, button: 1, status: 3 }; if (this.logFilter === 'system') return this.logs.filter(e => e.type !== 0); return this.logs.filter(e => e.type === map[this.logFilter]); },
     get paginatedFilteredLogs() {
       const perPage = Math.max(1, Number(this.logPerPage) || 50);
       const page = Math.max(0, Number(this.logPage) || 0);
@@ -588,7 +591,15 @@ function app() {
       };
     },
     get logChartSeriesList() {
+      // Gunakan cache — hanya recompute jika data log/sensor berubah
+      if (this._cachedChartSeriesList) {
+        return this._cachedChartSeriesList;
+      }
       const metrics = this.logChartMetrics;
+      if (!metrics.length) {
+        this._cachedChartSeriesList = [];
+        return [];
+      }
       const plotLeft = 6;
       const plotRight = 94;
       const plotTop = 8;
@@ -608,69 +619,81 @@ function app() {
         }
         return allColors[Math.abs(hash) % allColors.length];
       };
+
+      // Pra-proses: kelompokkan entry per sensor key utk akses cepat
+      const sensorKey = m => `${m.sensorNode||0}:${m.sensorChild||0}`;
+      const entriesBySensor = {};
+      for (const entry of this.sensorLogEntries) {
+        const data = entry?.data || '';
+        const ts = toNumber(entry?.ts ?? entry?.timestamp, 0);
+        if (!ts) continue;
+        const snapshot = this.getLogSensorSnapshot(entry);
+        const srcNode = toNumber(snapshot?.sourceNode, -1);
+        const srcChild = toNumber(snapshot?.sourceChild, -1);
+        if (srcNode < 0 || srcChild < 0) continue;
+        const key = `${srcNode}:${srcChild}`;
+        if (!entriesBySensor[key]) entriesBySensor[key] = [];
+        entriesBySensor[key].push({ ts, snapshot, entry });
+      }
+
       const seriesBase = metrics.map(metric => {
-        const samples = this.sensorLogEntries
-          .map(entry => {
-            const value = this.getLogMetricValue(entry, metric);
-            const ts = toNumber(entry?.ts ?? entry?.timestamp, 0);
-            if (!Number.isFinite(value) || !ts) return null;
-            return { ts, value };
+        const mKey = sensorKey(metric);
+        const sensorEntries = entriesBySensor[mKey] || [];
+        // Ambil nilai langsung dari snapshot.sourceValue lebih cepat
+        const samples = sensorEntries
+          .map(item => {
+            let value = toNumber(item.snapshot?.sourceValue, null);
+            if (value === null) {
+              value = this.getLogMetricValue(item.entry, metric);
+            }
+            if (!Number.isFinite(value)) return null;
+            return { ts: item.ts, value };
           })
           .filter(Boolean)
           .sort((a, b) => a.ts - b.ts)
           .slice(-48);
-        return {
-          key: metric.key,
-          label: metric.label,
-          unit: metric.unit,
-          samples
-        };
+        return { key: metric.key, label: metric.label, unit: metric.unit, samples };
       });
-      if (!seriesBase.length) return [];
-      const allPoints = seriesBase.flatMap(series => series.samples);
-      if (!allPoints.length) {
-        return seriesBase.map(series => {
-          const theme = palette[series.key] || { color: getFallbackColor(series.key), line: 'series-default' };
-          return {
-            ...series,
-            points: [],
-            path: '',
-            min: 0,
-            max: 0,
-            latest: null,
-            count: 0,
-            color: theme.color,
-            lineClass: theme.line,
-            visible: !this.logChartHiddenSeries.includes(series.key)
-          };
-        });
+
+      if (!seriesBase.length) {
+        this._cachedChartSeriesList = [];
+        return [];
       }
-      const tsMin = Math.min(...allPoints.map(item => item.ts));
-      const tsMax = Math.max(...allPoints.map(item => item.ts));
-      const valueMin = Math.min(...allPoints.map(item => item.value));
-      const valueMax = Math.max(...allPoints.map(item => item.value));
+
+      const allPoints = seriesBase.flatMap(s => s.samples);
+      if (!allPoints.length) {
+        const result = seriesBase.map(series => {
+          const theme = palette[series.key] || { color: getFallbackColor(series.key), line: 'series-default' };
+          return { ...series, points: [], path: '', min: 0, max: 0, latest: null, count: 0, color: theme.color, lineClass: theme.line, visible: !this.logChartHiddenSeries.includes(series.key) };
+        });
+        this._cachedChartSeriesList = result;
+        return result;
+      }
+
+      const tsMin = Math.min(...allPoints.map(p => p.ts));
+      const tsMax = Math.max(...allPoints.map(p => p.ts));
+      const valueMin = Math.min(...allPoints.map(p => p.value));
+      const valueMax = Math.max(...allPoints.map(p => p.value));
       const tsRange = Math.max(1, tsMax - tsMin);
       const valueRange = Math.max(1, valueMax - valueMin);
-      return seriesBase.map(series => {
-        const points = series.samples.map(item => {
-          const x = plotLeft + (((item.ts - tsMin) / tsRange) * (plotRight - plotLeft));
-          const y = valueMax === valueMin
-            ? (plotTop + plotBottom) / 2
-            : plotBottom - (((item.value - valueMin) / valueRange) * (plotBottom - plotTop));
-          return {
-            ...item,
-            x: Number(x.toFixed(1)),
-            y: Number(y.toFixed(1))
-          };
-        });
-        const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+      const midY = (plotTop + plotBottom) / 2;
+
+      const result = seriesBase.map(series => {
+        const points = series.samples.map(item => ({
+          ...item,
+          x: Number((plotLeft + (((item.ts - tsMin) / tsRange) * (plotRight - plotLeft))).toFixed(1)),
+          y: valueMax === valueMin
+            ? midY
+            : Number((plotBottom - (((item.value - valueMin) / valueRange) * (plotBottom - plotTop))).toFixed(1))
+        }));
+        const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
         const theme = palette[series.key] || { color: getFallbackColor(series.key), line: 'series-default' };
         return {
           ...series,
           points,
           path,
-          min: roundToOneDecimal(Math.min(...series.samples.map(item => item.value))),
-          max: roundToOneDecimal(Math.max(...series.samples.map(item => item.value))),
+          min: roundToOneDecimal(Math.min(...series.samples.map(p => p.value))),
+          max: roundToOneDecimal(Math.max(...series.samples.map(p => p.value))),
           latest: points[points.length - 1] || null,
           count: points.length,
           color: theme.color,
@@ -678,6 +701,8 @@ function app() {
           visible: !this.logChartHiddenSeries.includes(series.key)
         };
       });
+      this._cachedChartSeriesList = result;
+      return result;
     },
     get logChartSeries() {
       return this.logChartVisibleSeriesList[0] || this.logChartSeriesList[0] || { key: '', label: '', unit: '', points: [], path: '', min: 0, max: 0, count: 0, latest: null, color: '#25f4b8', lineClass: 'series-default' };
@@ -2439,6 +2464,28 @@ function app() {
       }
       return await res.text();
     },
+    // Ambil data sensor ringan dari API baru (hanya utk chart, lebih cepat)
+    async fetchSensorData(nodeId, childId, limit = 48) {
+      if (this.mode === 'local') {
+        const data = await this.localFetch(`/api/getSensorData?node=${nodeId}&child=${childId}&limit=${limit}`, { timeoutMs: 5000 });
+        if (data && Array.isArray(data.points)) return data.points;
+      }
+      // Fallback: ekstrak dari this.logs yang sudah ada
+      return this.sensorLogEntries
+        .map(entry => {
+          const snapshot = this.getLogSensorSnapshot(entry);
+          const srcNode = toNumber(snapshot?.sourceNode, -1);
+          const srcChild = toNumber(snapshot?.sourceChild, -1);
+          if (srcNode !== nodeId || srcChild !== childId) return null;
+          const value = toNumber(snapshot?.sourceValue, null);
+          const ts = toNumber(entry?.ts ?? entry?.timestamp, 0);
+          if (!Number.isFinite(value) || !ts) return null;
+          return { ts, value };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.ts - b.ts)
+        .slice(-limit);
+    },
     async downloadSensorLogsCsv() {
       const startTs = parseLocalDateTimeInput(this.logDownload?.start);
       const endTs = parseLocalDateTimeInput(this.logDownload?.end);
@@ -2576,6 +2623,7 @@ function app() {
           const data = parsePayloadKontrol(muatan);
           if (data && typeof data === 'object' && !Array.isArray(data) && (Array.isArray(data.logs) || data.count !== undefined || data.storage !== undefined)) {
             const incomingLogs = Array.isArray(data.logs) ? data.logs : [];
+            // Batasi jumlah log agar UI tidak berat
             const uiLogLimit = 300;
             this.logs = incomingLogs.length > uiLogLimit ? incomingLogs.slice(-uiLogLimit) : incomingLogs;
             this.logCount = data.count || incomingLogs.length || this.logs.length;
@@ -2599,10 +2647,12 @@ function app() {
           payloadLoaded = true;
         }
       }
-      if (payloadLoaded && !this.logChartMetrics.some(metric => metric.key === this.logChartMetric)) {
-        this.logChartMetric = this.logChartMetrics[0]?.key || 'temperature';
-      }
       if (payloadLoaded) {
+        // Tandai chart perlu di-recompute
+        this.markChartDirty();
+        if (!this.logChartMetrics.some(metric => metric.key === this.logChartMetric)) {
+          this.logChartMetric = this.logChartMetrics[0]?.key || 'temperature';
+        }
         this.logPage = 0;
       }
       if (this.logChartSelectedIndex !== null && this.logChartSelectedIndex >= this.logChartSeries.points.length) {
@@ -2632,6 +2682,10 @@ function app() {
       } else {
         this.logChartHiddenSeries = [...this.logChartHiddenSeries, metric];
       }
+    },
+    markChartDirty() {
+      this._cachedChartSeriesVersion += 1;
+      this._cachedChartSeriesList = null;
     },
     selectLogChartPoint(series, point) {
       if (!series || !point) return;

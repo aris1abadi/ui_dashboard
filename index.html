@@ -963,13 +963,20 @@
         <h3>📋 Log Aktivitas</h3><button @click="showLogModal = false" class="modal-close">×</button>
       </div>
       <div class="modal-body p-8 overflow-y-auto">
-        <div class="flex gap-2 mb-6">
+        <div class="flex flex-wrap gap-2 mb-6">
           <button @click="logFilter = 'all'" class="btn small"
             :class="logFilter === 'all' ? 'primary' : 'ghost'">Semua</button>
           <button @click="logFilter = 'sensor'" class="btn small"
             :class="logFilter === 'sensor' ? 'primary' : 'ghost'">Sensor</button>
+          <button @click="logFilter = 'system'" class="btn small"
+            :class="logFilter === 'system' ? 'primary' : 'ghost'">System</button>
           <button @click="logFilter = 'status'" class="btn small"
             :class="logFilter === 'status' ? 'primary' : 'ghost'">Status</button>
+        </div>
+        <!-- Info file structure -->
+        <div class="mb-6 text-[11px] text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
+          <span>📁 <span class="text-gray-400">/logs/system/</span> — Event, Status, Custom</span>
+          <span>📁 <span class="text-gray-400">/logs/sensor/&lt;node&gt;_&lt;child&gt;/</span> — per sensor</span>
         </div>
         <div class="mb-6 rounded-2xl border border-[#2a2a30] bg-black/20 p-4">
           <div class="flex flex-wrap gap-2 mb-3">
