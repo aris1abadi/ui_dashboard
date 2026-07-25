@@ -628,8 +628,8 @@ function app() {
         const ts = toNumber(entry?.ts ?? entry?.timestamp, 0);
         if (!ts) continue;
         const snapshot = this.getLogSensorSnapshot(entry);
-        const srcNode = toNumber(snapshot?.sourceNode, -1);
-        const srcChild = toNumber(snapshot?.sourceChild, -1);
+        const srcNode = toNumber(snapshot?.node ?? snapshot?.sourceNode, -1);
+        const srcChild = toNumber(snapshot?.child ?? snapshot?.sourceChild, -1);
         if (srcNode < 0 || srcChild < 0) continue;
         const key = `${srcNode}:${srcChild}`;
         if (!entriesBySensor[key]) entriesBySensor[key] = [];
@@ -639,10 +639,10 @@ function app() {
       const seriesBase = metrics.map(metric => {
         const mKey = sensorKey(metric);
         const sensorEntries = entriesBySensor[mKey] || [];
-        // Ambil nilai langsung dari snapshot.sourceValue lebih cepat
+        // Ambil nilai langsung dari snapshot (value / sourceValue)
         const samples = sensorEntries
           .map(item => {
-            let value = toNumber(item.snapshot?.sourceValue, null);
+            let value = toNumber(item.snapshot?.value ?? item.snapshot?.sourceValue, null);
             if (value === null) {
               value = this.getLogMetricValue(item.entry, metric);
             }
@@ -2474,10 +2474,10 @@ function app() {
       return this.sensorLogEntries
         .map(entry => {
           const snapshot = this.getLogSensorSnapshot(entry);
-          const srcNode = toNumber(snapshot?.sourceNode, -1);
-          const srcChild = toNumber(snapshot?.sourceChild, -1);
+          const srcNode = toNumber(snapshot?.node ?? snapshot?.sourceNode, -1);
+          const srcChild = toNumber(snapshot?.child ?? snapshot?.sourceChild, -1);
           if (srcNode !== nodeId || srcChild !== childId) return null;
-          const value = toNumber(snapshot?.sourceValue, null);
+          const value = toNumber(snapshot?.value ?? snapshot?.sourceValue, null);
           const ts = toNumber(entry?.ts ?? entry?.timestamp, 0);
           if (!Number.isFinite(value) || !ts) return null;
           return { ts, value };
@@ -2546,7 +2546,7 @@ function app() {
         }
         collected.sort((a, b) => a.ts - b.ts);
         const rows = [
-          'timestamp,temperature,humidity,soil'
+          'timestamp,sensor,node,child,value,raw,unit'
         ];
         for (const entry of collected) {
           const row = this.formatSensorLogCsvRow(entry);
@@ -2587,15 +2587,21 @@ function app() {
         return `"${text.replace(/"/g, '""')}"`;
       };
       const timestampIso = formatCsvDateTime(ts);
-      const temperature = Number.isFinite(Number(parsed?.temperature ?? parsed?.temp)) ? roundToOneDecimal(parsed?.temperature ?? parsed?.temp) : '';
-      const humidity = Number.isFinite(Number(parsed?.humidity ?? parsed?.hum)) ? roundToOneDecimal(parsed?.humidity ?? parsed?.hum) : '';
-      const soil = Number.isFinite(Number(parsed?.soil ?? parsed?.moisture ?? parsed?.value)) ? roundToOneDecimal(parsed?.soil ?? parsed?.moisture ?? parsed?.value) : '';
-      if (temperature === '' && humidity === '' && soil === '') return '';
+      const label  = parsed?.label  ?? '';
+      const node   = parsed?.node   ?? '';
+      const child  = parsed?.child  ?? '';
+      const value  = Number.isFinite(Number(parsed?.value))  ? roundToOneDecimal(parsed.value)  : '';
+      const rawVal = Number.isFinite(Number(parsed?.raw))    ? Math.round(parsed.raw)           : '';
+      const unit   = parsed?.unit   ?? '';
+      if (value === '' && rawVal === '') return '';
       return [
         toCsv(timestampIso),
-        toCsv(temperature === '' ? '' : String(temperature)),
-        toCsv(humidity === '' ? '' : String(humidity)),
-        toCsv(soil === '' ? '' : String(soil))
+        toCsv(label),
+        toCsv(node),
+        toCsv(child),
+        toCsv(value === '' ? '' : String(value)),
+        toCsv(rawVal === '' ? '' : String(rawVal)),
+        toCsv(unit)
       ].join(',');
     },
     async loadLocalLogs() {
