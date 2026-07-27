@@ -2820,13 +2820,11 @@ function app() {
     },
     clearLogChartPoint() {
       this.logChartActivePoint = null;
-      // Redraw all chart canvases
-      const metrics = this.logChartMetrics;
-      for (const metric of metrics) {
+      // Redraw only currently visible chart
+      const metric = this.selectedLogChartMetric;
+      if (metric) {
         const canvas = document.getElementById('chart-' + metric.key);
-        if (canvas && canvas.parentElement) {
-          this.drawChart(metric.key, canvas.parentElement);
-        }
+        if (canvas) this.drawChart(metric.key, canvas.parentElement);
       }
     },
     debounceDrawChart(metricKey) {
@@ -2841,29 +2839,36 @@ function app() {
       if (!series || !series.points || !series.points.length) return;
       const canvas = document.getElementById('chart-' + metricKey);
       if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const w = rect.width;
-      const h = rect.height;
+      // Get dimensions: prefer CSS size, fallback to clientWidth/Height
+      let w = canvas.clientWidth;
+      let h = canvas.clientHeight;
+      if (w < 10 || h < 10) {
+        const rect = canvas.getBoundingClientRect();
+        w = rect.width;
+        h = rect.height;
+      }
+      if (w < 10 || h < 10) {
+        // Last resort: force dimensions from CSS
+        const cs = getComputedStyle(canvas);
+        w = parseFloat(cs.width) || 300;
+        h = parseFloat(cs.height) || 180;
+      }
       if (w < 10 || h < 10) return;
       // Set canvas pixel dimensions (use devicePixelRatio for HiDPI)
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
       const ctx = canvas.getContext('2d');
       ctx.scale(dpr, dpr);
-      // Fill background (dark)
-      ctx.fillStyle = '#0d0d12';
-      ctx.fillRect(0, 0, w, h);
-      // Margins (extra left for Y-axis labels drawn on canvas)
-      const ml = 40, mr = 8, mt = 14, mb = 18;
-      const plotW = w - ml - mr;
-      const plotH = h - mt - mb;
-      if (plotW < 10 || plotH < 10) return;
+      // Margins (compact)
+      const ml = 36, mr = 6, mt = 10, mb = 14;
+      const plotW = Math.max(10, w - ml - mr);
+      const plotH = Math.max(10, h - mt - mb);
       // Determine value range from points
       const vals = series.points.map(p => p.value);
       const valMin = Math.min(...vals);
       const valMax = Math.max(...vals);
-      const valRange = Math.max(1, valMax - valMin);
+      const valRange = Math.max(0.1, valMax - valMin);
       const tsMin = series.points[0].ts;
       const tsMax = series.points[series.points.length - 1].ts;
       const tsRange = Math.max(1, tsMax - tsMin);
@@ -2877,36 +2882,36 @@ function app() {
         ctx.lineTo(ml + plotW, y);
         ctx.stroke();
       }
-      // Y-axis labels (drawn on canvas, compact)
-      ctx.font = '10px sans-serif';
+      // Y-axis labels (compact, drawn right-aligned inside plot area)
+      ctx.font = '9px sans-serif';
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
       for (let i = 0; i <= 4; i++) {
         const frac = i / 4;
         const val = valMax - (frac * valRange);
-        const label = this.formatNilaiSensor(val, series.unit);
+        const label = val.toFixed(1);
         const y = mt + (plotH * frac);
-        // Semi-transparent background behind label text
-        const tw = ctx.measureText(label).width;
-        ctx.fillStyle = 'rgba(13, 13, 18, 0.7)';
-        ctx.fillRect(ml - tw - 6, y - 7, tw + 8, 14);
-        ctx.fillStyle = 'rgba(200, 200, 200, 0.85)';
-        ctx.fillText(label, ml - 4, y);
+        const tw = ctx.measureText(label).width + 4;
+        ctx.fillStyle = 'rgba(13, 13, 18, 0.6)';
+        ctx.fillRect(ml - tw - 2, y - 6, tw + 4, 12);
+        ctx.fillStyle = 'rgba(200, 200, 200, 0.8)';
+        ctx.fillText(label, ml - 3, y);
       }
       // X-axis labels (time)
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       ctx.fillStyle = 'rgba(200, 200, 200, 0.6)';
-      ctx.font = '9px sans-serif';
-      const timeLabels = [
-        { ts: tsMin, label: this.formatLogTimestamp(tsMin * 1000) },
-        { ts: tsMin + tsRange * 0.5, label: '' },
-        { ts: tsMax, label: this.formatLogTimestamp(tsMax * 1000) }
+      ctx.font = '8px sans-serif';
+      const tsMid = tsMin + tsRange * 0.5;
+      const xAxisLabels = [
+        { ts: tsMin, label: this.formatLogTimestamp(tsMin * 1000).slice(-5) },
+        { ts: tsMid, label: '' },
+        { ts: tsMax, label: this.formatLogTimestamp(tsMax * 1000).slice(-5) }
       ];
-      for (const tl of timeLabels) {
+      for (const tl of xAxisLabels) {
         if (!tl.label) continue;
         const x = ml + ((tl.ts - tsMin) / tsRange) * plotW;
-        ctx.fillText(tl.label, x, mt + plotH + 2);
+        ctx.fillText(tl.label, x, mt + plotH + 1);
       }
       // Data line
       const color = series.color || '#25f4b8';

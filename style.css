@@ -1981,6 +1981,7 @@ html.theme-light body.has-custom-bg .status-inline.badge-info .status-inline-ico
   height: 180px;
   display: block;
   cursor: crosshair;
+  background: #0d0d12;
 }
 
 .log-chart-point-layer {
