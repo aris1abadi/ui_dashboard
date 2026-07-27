@@ -295,19 +295,21 @@ function app() {
     editingTask: {}, editingSchedule: {}, scheduleListTaskIndex: -1, taskToDelete: null,
     showMoistureCalibrationModal: false,
     moistureCalibrationPollTimer: null,
-    moistureCalibration: { nodeId: 0, childId: 0, label: '', rawValue: null, dryValue: 800, wetValue: 490, currentValue: null, error: '' },
+    moistureCalibration: { nodeId: 0, childId: 0, label: '', rawValue: null, dryValue: 800, wetValue: 490, currentValue: null, error: '', intervalSec: 60 },
     showDistanceCalibrationModal: false,
     distanceCalibrationPollTimer: null,
-    distanceCalibration: { nodeId: 0, childId: 0, label: '', rawValue: null, lowValue: -10, highValue: 15, currentValue: null, error: '' },
+    distanceCalibration: { nodeId: 0, childId: 0, label: '', rawValue: null, lowValue: -10, highValue: 15, currentValue: null, error: '', intervalSec: 60 },
     showFuelCalibrationModal: false,
+    showSensorIntervalModal: false,
+    sensorInterval: { nodeId: 0, childId: 0, label: '', intervalSec: 60 },
     fuelCalibrationPollTimer: null,
-    fuelCalibration: { nodeId: 0, childId: 0, label: '', rawValue: null, lowValue: 190, highValue: 0, currentValue: null, error: '' },
+    fuelCalibration: { nodeId: 0, childId: 0, label: '', rawValue: null, lowValue: 190, highValue: 0, currentValue: null, error: '', intervalSec: 60 },
     timeForm: { date: '', time: '' },
     wifiSetup: { ssid: '', pass: '', auth: '', file: null, firmwareName: '' },
     loraChannelSetup: { value: 4, defaultValue: 4, stored: false },
     touchButtons: [], touchSensitivityLoading: false,
     wifiScanResults: [], wifiScanLoading: false, wifiScanError: '', wifiScanAt: null, wifiScanFilter: 'all',
-    deepSleep: { nodeId: null, intervalSec: 60 },
+    // deepSleep moved to per-sensor calibration modals
     // State log
     logs: [], logFilter: 'system', logPage: 0, logPerPage: 50, logCount: 0, logStorage: '0 B', logLoading: false, logChartMetric: 'temperature', logChartSelectedIndex: null, logChartHiddenSeries: [], logChartActivePoint: null, logDownload: { start: '', end: '', busy: false, error: '', progress: 0, status: '', totalPages: 0, processedPages: 0, mode: '', totalLogs: 0 }, pendingLogDownloads: {},
     // Cache chart agar tidak rekomputasi tiap render
@@ -833,13 +835,15 @@ function app() {
       // Redraw saat metric berubah
       this.$watch('logChartMetric', () => {
         if (this.showLogModal) {
-          this.$nextTick(() => {
-            const metric = this.selectedLogChartMetric;
-            if (metric) {
-              const canvas = document.getElementById('chart-' + metric.key);
-              if (canvas && canvas.parentElement) this.drawChart(metric.key, canvas.parentElement);
-            }
-          });
+          setTimeout(() => {
+            try {
+              const metric = this.selectedLogChartMetric;
+              if (metric) {
+                const canvas = document.getElementById('chart-' + metric.key);
+                if (canvas && canvas.parentElement) this.drawChart(metric.key, canvas.parentElement);
+              }
+            } catch(e) { console.warn('Chart draw error:', e); }
+          }, 50);
         }
       });
     },
@@ -1746,6 +1750,9 @@ function app() {
       }
       return Math.round(value);
     },
+    initCalibrationInterval(sensor) {
+      return sensor.sleepIntervalMs ? Math.round(sensor.sleepIntervalMs / 60000) : 60;
+    },
     openMoistureCalibration(sensor) {
       if (!this.isMoistureSensor(sensor)) return;
       const dryValue = toNumber(sensor.moistureDryCalibration, 800);
@@ -1764,7 +1771,8 @@ function app() {
         dryValue,
         wetValue,
         currentValue: sensor.value,
-        error: ''
+        error: '',
+        intervalSec: this.initCalibrationInterval(sensor)
       };
       this.showMoistureCalibrationModal = true;
       this.startMoistureCalibrationPolling();
@@ -1824,6 +1832,10 @@ function app() {
           this.publishCommand(perintah);
           setTimeout(() => this.publishCommand('getSensors'), 500);
           this.showToast('Kalibrasi dikirim ke kontroler.');
+          // Juga kirim interval jika remote node
+          if (nodeId !== 0 && payload.intervalSec) {
+            this.publishCommand('setSensorSleep', [nodeId, childId, payload.intervalSec * 60 * 1000]);
+          }
           this.closeMoistureCalibration();
         }
       } finally {
@@ -1908,6 +1920,26 @@ function app() {
       const value = Number(sensor.value);
       return Number.isFinite(value) ? value : null;
     },
+    openSensorInterval(sensor) {
+      if (!sensor || sensor.nodeId === 0) return;
+      this.sensorInterval = {
+        nodeId: sensor.nodeId,
+        childId: sensor.childId,
+        label: sensor.label || `Sensor ${sensor.nodeId}:${sensor.childId}`,
+        intervalSec: sensor.sleepIntervalMs ? Math.round(sensor.sleepIntervalMs / 60000) : 60
+      };
+      this.showSensorIntervalModal = true;
+    },
+    closeSensorInterval() {
+      this.showSensorIntervalModal = false;
+    },
+    saveSensorInterval() {
+      const s = this.sensorInterval;
+      if (s.nodeId === 0) return;
+      this.publishCommand('setSensorSleep', [s.nodeId, s.childId, s.intervalSec * 60 * 1000]);
+      this.showToast(`Interval node ${s.nodeId}:${s.childId} disimpan.`, 'success');
+      this.closeSensorInterval();
+    },
     openDistanceCalibration(sensor) {
       if (!this.isDistanceSensor(sensor)) return;
       const rawValue = pickRawAdcValue(
@@ -1932,7 +1964,8 @@ function app() {
           return Number.isFinite(low) && Number.isFinite(high) && !(low === 0 && high === 0) ? high : 15;
         })(),
         currentValue: sensor.value,
-        error: ''
+        error: '',
+        intervalSec: this.initCalibrationInterval(sensor)
       };
       this.showDistanceCalibrationModal = true;
       this.startDistanceCalibrationPolling();
@@ -1987,6 +2020,9 @@ function app() {
           this.publishCommand(perintah);
           setTimeout(() => this.publishCommand('getSensors'), 500);
           this.showToast('Kalibrasi dikirim ke kontroler.');
+          if (nodeId !== 0 && payload.intervalSec) {
+            this.publishCommand('setSensorSleep', [nodeId, childId, payload.intervalSec * 60 * 1000]);
+          }
           this.closeDistanceCalibration();
         }
       } finally {
@@ -2072,7 +2108,8 @@ function app() {
         lowValue: toNumber(sensor.fuelLowCalibration, 190),
         highValue: toNumber(sensor.fuelHighCalibration, 0),
         currentValue: sensor.value,
-        error: ''
+        error: '',
+        intervalSec: this.initCalibrationInterval(sensor)
       };
       this.showFuelCalibrationModal = true;
       this.startFuelCalibrationPolling();
@@ -2127,6 +2164,9 @@ function app() {
           this.publishCommand(perintah);
           setTimeout(() => this.publishCommand('getSensors'), 500);
           this.showToast('Kalibrasi dikirim ke kontroler.');
+          if (nodeId !== 0 && payload.intervalSec) {
+            this.publishCommand('setSensorSleep', [nodeId, childId, payload.intervalSec * 60 * 1000]);
+          }
           this.closeFuelCalibration();
         }
       } finally {
@@ -2423,6 +2463,7 @@ function app() {
       this.showToast('Jadwal akan dihapus saat task disimpan.');
     },
     openLogModal() { 
+      try {
       this.showLogModal = true; 
       this.logChartSelectedIndex = null;
       this.logPage = 0;
@@ -2430,6 +2471,7 @@ function app() {
       this.ensureDefaultLogDownloadRange();
       if (this.mode === 'mqtt') this.publishCommand('getLogs', [0, 30]);
       else this.loadLocalLogs();
+      } catch(e) { console.warn('openLogModal error:', e); this.logLoading = false; }
     },
     ensureDefaultLogDownloadRange() {
       if (!this.logDownload?.start) {
@@ -2685,15 +2727,16 @@ function app() {
           this.logChartMetric = this.logChartMetrics[0]?.key || 'temperature';
         }
         this.logPage = 0;
-        // Redraw semua canvas chart setelah data baru
-        this.$nextTick(() => {
-          for (const metric of this.logChartMetrics) {
-            const canvas = document.getElementById('chart-' + metric.key);
-            if (canvas && canvas.parentElement) {
-              this.drawChart(metric.key, canvas.parentElement);
+        // Redraw chart canvas setelah data baru
+        setTimeout(() => {
+          try {
+            const metric = this.selectedLogChartMetric;
+            if (metric) {
+              const canvas = document.getElementById('chart-' + metric.key);
+              if (canvas && canvas.parentElement) this.drawChart(metric.key, canvas.parentElement);
             }
-          }
-        });
+          } catch(e) { console.warn('Chart draw error:', e); }
+        }, 50);
       }
       if (this.logChartSelectedIndex !== null && this.logChartSelectedIndex >= this.logChartSeries.points.length) {
         this.logChartSelectedIndex = null;
@@ -2716,12 +2759,14 @@ function app() {
       this.logChartSelectedIndex = null;
       this.logChartActivePoint = null;
       // Redraw canvas untuk metric baru
-      this.$nextTick(() => {
-        const canvas = document.getElementById('chart-' + metric);
-        if (canvas && canvas.parentElement) {
-          this.drawChart(metric, canvas.parentElement);
-        }
-      });
+      setTimeout(() => {
+        try {
+          const canvas = document.getElementById('chart-' + metric);
+          if (canvas && canvas.parentElement) {
+            this.drawChart(metric, canvas.parentElement);
+          }
+        } catch(e) { console.warn('Chart draw error:', e); }
+      }, 50);
     },
     toggleLogChartSeries(metric) {
       if (!metric) return;
@@ -2786,9 +2831,12 @@ function app() {
     },
     debounceDrawChart(metricKey) {
       if (this._chartDebounce) clearTimeout(this._chartDebounce);
-      this._chartDebounce = setTimeout(() => this.drawChart(metricKey), 150);
+      this._chartDebounce = setTimeout(() => {
+        try { this.drawChart(metricKey); } catch(e) { console.warn('Chart draw error:', e); }
+      }, 150);
     },
     drawChart(metricKey, surfaceEl) {
+      try {
       const series = this.getLogChartSeries(metricKey);
       if (!series || !series.points || !series.points.length) return;
       const canvas = document.getElementById('chart-' + metricKey);
@@ -2910,6 +2958,7 @@ function app() {
           this.logChartActivePoint.canvasY = hy;
         }
       }
+      } catch(e) { console.warn('Chart drawChart error:', e); }
     },
     getLogSensorSnapshot(entry) {
       if (!entry) return {};
@@ -3483,11 +3532,26 @@ function app() {
           this.endAction();
         });
     },
-    submitDeepSleepInterval() {
-      if (!this.deepSleep.nodeId) return this.showToast('Pilih node sensor.', 'error');
-      this.publishCommand('setSleep', [this.deepSleep.nodeId, this.deepSleep.intervalSec * 60 * 1000]);
-      this.showToast('Interval node pembaca dikirim.');
-    }
+    openSensorInterval(sensor) {
+      if (!sensor || sensor.nodeId === 0) return;
+      this.sensorInterval = {
+        nodeId: sensor.nodeId,
+        childId: sensor.childId,
+        label: sensor.label || ('Sensor ' + sensor.nodeId + ':' + sensor.childId),
+        intervalSec: sensor.sleepIntervalMs ? Math.round(sensor.sleepIntervalMs / 60000) : 60
+      };
+      this.showSensorIntervalModal = true;
+    },
+    closeSensorInterval() {
+      this.showSensorIntervalModal = false;
+    },
+    saveSensorInterval() {
+      const s = this.sensorInterval;
+      if (s.nodeId === 0) return;
+      this.publishCommand('setSensorSleep', [s.nodeId, s.childId, s.intervalSec * 60 * 1000]);
+      this.showToast('Interval node ' + s.nodeId + ':' + s.childId + ' disimpan.', 'success');
+      this.closeSensorInterval();
+    },
   };
 }
 

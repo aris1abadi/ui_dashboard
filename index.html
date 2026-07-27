@@ -153,6 +153,14 @@
           </button>
         </div>
 
+        <!-- Interval Sensor (hanya untuk remote node) -->
+        <div class="bg-black/20 p-4 rounded-2xl border border-white/5" x-show="distanceCalibration.nodeId !== 0">
+          <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Interval Node (menit)</p>
+          <input type="range" min="5" max="120" step="1" x-model.number="distanceCalibration.intervalSec"
+            class="w-full" />
+          <p class="text-xs text-gray-400 mt-1" x-text="distanceCalibration.intervalSec + ' menit'"></p>
+        </div>
+
         <div class="flex flex-col gap-2 mt-4">
           <button @click="resetDistanceCalibration()" class="btn ghost w-full">Atur Ulang Bawaan</button>
         </div>
@@ -211,6 +219,14 @@
           </button>
         </div>
 
+        <!-- Interval Sensor (hanya untuk remote node) -->
+        <div class="bg-black/20 p-4 rounded-2xl border border-white/5" x-show="fuelCalibration.nodeId !== 0">
+          <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Interval Node (menit)</p>
+          <input type="range" min="5" max="120" step="1" x-model.number="fuelCalibration.intervalSec"
+            class="w-full" />
+          <p class="text-xs text-gray-400 mt-1" x-text="fuelCalibration.intervalSec + ' menit'"></p>
+        </div>
+
         <div class="flex flex-col gap-2 mt-4">
           <button @click="resetFuelCalibration()" class="btn ghost w-full">Atur Ulang Bawaan</button>
         </div>
@@ -219,6 +235,30 @@
       <div class="modal-footer">
         <button @click="closeFuelCalibration()" class="btn ghost">Batal</button>
         <button @click="saveFuelCalibration()" class="btn primary" :disabled="actionInFlight">Simpan Kalibrasi</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- === Modal Interval Sensor === -->
+  <div x-show="showSensorIntervalModal" @keydown.escape.window="closeSensorInterval()" x-transition
+    class="modal calibration-layer" @click.self="closeSensorInterval()">
+    <div class="modal-card calibration">
+      <div class="modal-header">
+        <h3>Interval Sensor</h3>
+        <button @click="closeSensorInterval()" class="modal-close">×</button>
+      </div>
+      <div class="modal-body p-6 space-y-6">
+        <div class="text-lg font-bold text-white" x-text="sensorInterval.label"></div>
+        <div class="text-sm text-gray-400" x-text="`Node ${sensorInterval.nodeId}:${sensorInterval.childId}`"></div>
+        <div class="bg-black/20 p-4 rounded-2xl border border-white/5">
+          <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Interval Node (menit)</p>
+          <input type="range" min="5" max="120" step="1" x-model.number="sensorInterval.intervalSec" class="w-full" />
+          <p class="text-xs text-gray-400 mt-1" x-text="sensorInterval.intervalSec + ' menit'"></p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button @click="closeSensorInterval()" class="btn ghost">Batal</button>
+        <button @click="saveSensorInterval()" class="btn primary">Simpan Interval</button>
       </div>
     </div>
   </div>
@@ -545,9 +585,8 @@
           <h4 class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4" x-text="getUiLabel('sensor')"></h4>
           <div class="list">
             <template x-for="sensor in sensors" :key="`${sensor.nodeId}:${sensor.childId}`">
-              <div class="item"
-                :class="{ 'cursor-pointer hover:bg-white/5': isMoistureSensor(sensor) || isDistanceSensor(sensor) || isFuelHeightSensor(sensor) }"
-                @click="isMoistureSensor(sensor) ? openMoistureCalibration(sensor) : (isDistanceSensor(sensor) ? openDistanceCalibration(sensor) : (isFuelHeightSensor(sensor) && openFuelCalibration(sensor)))">
+              <div class="item cursor-pointer hover:bg-white/5"
+                @click="sensor.nodeId === 0 ? null : (isMoistureSensor(sensor) ? openMoistureCalibration(sensor) : (isDistanceSensor(sensor) ? openDistanceCalibration(sensor) : (isFuelHeightSensor(sensor) ? openFuelCalibration(sensor) : openSensorInterval(sensor))))">
                 <div class="flex-1">
                   <div class="title flex items-baseline gap-2 flex-wrap">
                     <span x-text="sensor.label || getUiLabel('sensor')"></span>
@@ -567,22 +606,7 @@
           </div>
         </div>
 
-        <!-- Konfigurasi Deep Sleep -->
-        <div class="bg-[#202026] p-4 rounded-xl border border-[#2a2a30] mb-6">
-          <div class="form-group">
-            <select x-model="deepSleep.nodeId">
-              <option value="">Pilih Node</option>
-              <template x-for="nodeId in sensorNodeIds" :key="nodeId">
-                <option :value="nodeId" x-text="`${getUiLabel('node')} ${nodeId}`"></option>
-              </template>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Interval Node (menit): <span x-text="deepSleep.intervalSec"></span></label>
-            <input type="range" min="30" max="120" step="1" x-model.number="deepSleep.intervalSec" />
-          </div>
-          <button @click="submitDeepSleepInterval" class="btn primary small">Simpan Interval</button>
-        </div>
+
 
         <!-- Bagian Aktuator -->
         <div>
@@ -940,6 +964,14 @@
             <span class="calibration-action-label">Nilai Basah</span>
             <span class="calibration-action-value" x-text="formatNilaiAdc(moistureCalibration.wetValue)"></span>
           </button>
+        </div>
+
+        <!-- Interval Sensor (hanya untuk remote node) -->
+        <div class="bg-black/20 p-4 rounded-2xl border border-white/5" x-show="moistureCalibration.nodeId !== 0">
+          <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Interval Node (menit)</p>
+          <input type="range" min="5" max="120" step="1" x-model.number="moistureCalibration.intervalSec"
+            class="w-full" />
+          <p class="text-xs text-gray-400 mt-1" x-text="moistureCalibration.intervalSec + ' menit'"></p>
         </div>
 
         <div class="flex flex-col gap-2 mt-4">
