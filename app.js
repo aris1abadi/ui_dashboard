@@ -309,7 +309,7 @@ function app() {
     wifiScanResults: [], wifiScanLoading: false, wifiScanError: '', wifiScanAt: null, wifiScanFilter: 'all',
     deepSleep: { nodeId: null, intervalSec: 60 },
     // State log
-    logs: [], logFilter: 'all', logPage: 0, logPerPage: 50, logCount: 0, logStorage: '0 B', logLoading: false, logChartMetric: 'temperature', logChartSelectedIndex: null, logChartHiddenSeries: [], logChartActivePoint: null, logDownload: { start: '', end: '', busy: false, error: '', progress: 0, status: '', totalPages: 0, processedPages: 0, mode: '', totalLogs: 0 }, pendingLogDownloads: {},
+    logs: [], logFilter: 'system', logPage: 0, logPerPage: 50, logCount: 0, logStorage: '0 B', logLoading: false, logChartMetric: 'temperature', logChartSelectedIndex: null, logChartHiddenSeries: [], logChartActivePoint: null, logDownload: { start: '', end: '', busy: false, error: '', progress: 0, status: '', totalPages: 0, processedPages: 0, mode: '', totalLogs: 0 }, pendingLogDownloads: {},
     // Cache chart agar tidak rekomputasi tiap render
     _cachedChartSeriesList: null,
     _cachedChartSeriesVersion: 0,
@@ -822,11 +822,24 @@ function app() {
         if (this.showLogModal) {
           clearTimeout(this._resizeTimer);
           this._resizeTimer = setTimeout(() => {
-            for (const metric of this.logChartMetrics) {
+            const metric = this.selectedLogChartMetric;
+            if (metric) {
               const canvas = document.getElementById('chart-' + metric.key);
               if (canvas && canvas.parentElement) this.drawChart(metric.key, canvas.parentElement);
             }
           }, 200);
+        }
+      });
+      // Redraw saat metric berubah
+      this.$watch('logChartMetric', () => {
+        if (this.showLogModal) {
+          this.$nextTick(() => {
+            const metric = this.selectedLogChartMetric;
+            if (metric) {
+              const canvas = document.getElementById('chart-' + metric.key);
+              if (canvas && canvas.parentElement) this.drawChart(metric.key, canvas.parentElement);
+            }
+          });
         }
       });
     },
@@ -2701,6 +2714,14 @@ function app() {
       if (!metric) return;
       this.logChartMetric = metric;
       this.logChartSelectedIndex = null;
+      this.logChartActivePoint = null;
+      // Redraw canvas untuk metric baru
+      this.$nextTick(() => {
+        const canvas = document.getElementById('chart-' + metric);
+        if (canvas && canvas.parentElement) {
+          this.drawChart(metric, canvas.parentElement);
+        }
+      });
     },
     toggleLogChartSeries(metric) {
       if (!metric) return;
@@ -2782,10 +2803,11 @@ function app() {
       canvas.height = h * dpr;
       const ctx = canvas.getContext('2d');
       ctx.scale(dpr, dpr);
-      // Clear
-      ctx.clearRect(0, 0, w, h);
-      // Margins
-      const ml = 8, mr = 8, mt = 12, mb = 16;
+      // Fill background (dark)
+      ctx.fillStyle = '#0d0d12';
+      ctx.fillRect(0, 0, w, h);
+      // Margins (extra left for Y-axis labels drawn on canvas)
+      const ml = 40, mr = 8, mt = 14, mb = 18;
       const plotW = w - ml - mr;
       const plotH = h - mt - mb;
       if (plotW < 10 || plotH < 10) return;
@@ -2806,6 +2828,37 @@ function app() {
         ctx.moveTo(ml, y);
         ctx.lineTo(ml + plotW, y);
         ctx.stroke();
+      }
+      // Y-axis labels (drawn on canvas, compact)
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      for (let i = 0; i <= 4; i++) {
+        const frac = i / 4;
+        const val = valMax - (frac * valRange);
+        const label = this.formatNilaiSensor(val, series.unit);
+        const y = mt + (plotH * frac);
+        // Semi-transparent background behind label text
+        const tw = ctx.measureText(label).width;
+        ctx.fillStyle = 'rgba(13, 13, 18, 0.7)';
+        ctx.fillRect(ml - tw - 6, y - 7, tw + 8, 14);
+        ctx.fillStyle = 'rgba(200, 200, 200, 0.85)';
+        ctx.fillText(label, ml - 4, y);
+      }
+      // X-axis labels (time)
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = 'rgba(200, 200, 200, 0.6)';
+      ctx.font = '9px sans-serif';
+      const timeLabels = [
+        { ts: tsMin, label: this.formatLogTimestamp(tsMin * 1000) },
+        { ts: tsMin + tsRange * 0.5, label: '' },
+        { ts: tsMax, label: this.formatLogTimestamp(tsMax * 1000) }
+      ];
+      for (const tl of timeLabels) {
+        if (!tl.label) continue;
+        const x = ml + ((tl.ts - tsMin) / tsRange) * plotW;
+        ctx.fillText(tl.label, x, mt + plotH + 2);
       }
       // Data line
       const color = series.color || '#25f4b8';

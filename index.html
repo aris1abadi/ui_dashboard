@@ -964,14 +964,10 @@
       </div>
       <div class="modal-body p-8 overflow-y-auto">
         <div class="flex flex-wrap gap-2 mb-6">
-          <button @click="logFilter = 'all'" class="btn small"
-            :class="logFilter === 'all' ? 'primary' : 'ghost'">Semua</button>
-          <button @click="logFilter = 'sensor'" class="btn small"
-            :class="logFilter === 'sensor' ? 'primary' : 'ghost'">Sensor</button>
           <button @click="logFilter = 'system'" class="btn small"
             :class="logFilter === 'system' ? 'primary' : 'ghost'">System</button>
-          <button @click="logFilter = 'status'" class="btn small"
-            :class="logFilter === 'status' ? 'primary' : 'ghost'">Status</button>
+          <button @click="logFilter = 'sensor'" class="btn small"
+            :class="logFilter === 'sensor' ? 'primary' : 'ghost'">Sensor</button>
         </div>
         <!-- Info file structure -->
         <div class="mb-6 text-[11px] text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
@@ -1016,25 +1012,26 @@
           <p class="mt-2 text-xs text-red-500" x-show="logDownload.error" x-text="logDownload.error"></p>
         </div>
         <div class="mb-6" x-show="logFilter === 'sensor'">
+          <!-- Pilih grafik sensor -->
+          <div class="mb-4">
+            <select x-model="logChartMetric" class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white text-sm">
+              <template x-for="metric in logChartMetrics" :key="metric.key">
+                <option :value="metric.key" x-text="metric.label"></option>
+              </template>
+            </select>
+          </div>
+          <!-- Grafik terpilih -->
           <template x-for="metric in logChartMetrics" :key="metric.key">
-            <div class="mb-6">
+            <div class="mb-6" x-show="metric.key === logChartMetric">
               <h4 class="log-chart-title mb-3"
                 :class="getLogChartSeries(metric.key).points.length ? 'log-chart-title-has-data' : 'log-chart-title-empty'"
                 x-text="metric.label"></h4>
               <div class="log-chart-frame">
-                <div class="log-chart-y-axis">
-                  <span
-                    x-text="formatNilaiSensor(getLogChartExtents(getLogChartSeries(metric.key)).max, metric.unit)"></span>
-                  <span
-                    x-text="formatNilaiSensor((getLogChartExtents(getLogChartSeries(metric.key)).min + getLogChartExtents(getLogChartSeries(metric.key)).max) / 2, metric.unit)"></span>
-                  <span
-                    x-text="formatNilaiSensor(getLogChartExtents(getLogChartSeries(metric.key)).min, metric.unit)"></span>
-                </div>
                 <div class="log-chart-surface"
                   @pointermove="updateLogChartHover(metric.key, $event); drawChart(metric.key, $event.currentTarget)"
                   @mouseenter="updateLogChartHover(metric.key, $event)" @mouseleave="clearLogChartPoint(); drawChart(metric.key, $event.currentTarget)">
                   <canvas :id="'chart-'+metric.key" class="log-chart-canvas"
-                    @resize.window="debounceDrawChart(metric.key)">
+                    x-init="$nextTick(() => { const el = $el.parentElement; if (el) drawChart(metric.key, el); })">
                   </canvas>
                   <div class="log-chart-tooltip log-chart-tooltip-fixed"
                     x-show="logChartActivePoint && logChartActivePoint.key === metric.key"
