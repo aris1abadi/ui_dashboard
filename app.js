@@ -651,7 +651,7 @@ function app() {
           })
           .filter(Boolean)
           .sort((a, b) => a.ts - b.ts)
-          .slice(-48);
+          .slice(-24);
         return { key: metric.key, label: metric.label, unit: metric.unit, samples };
       });
 
@@ -816,6 +816,18 @@ function app() {
       });
       this.$watch('showAllTasksModal', (val) => {
         this.localPollingPaused = val || this.showTaskModal;
+      });
+      // Resize → redraw canvas charts
+      window.addEventListener('resize', () => {
+        if (this.showLogModal) {
+          clearTimeout(this._resizeTimer);
+          this._resizeTimer = setTimeout(() => {
+            for (const metric of this.logChartMetrics) {
+              const canvas = document.getElementById('chart-' + metric.key);
+              if (canvas && canvas.parentElement) this.drawChart(metric.key, canvas.parentElement);
+            }
+          }, 200);
+        }
       });
     },
     loadConfig() { 
@@ -2465,7 +2477,7 @@ function app() {
       return await res.text();
     },
     // Ambil data sensor ringan dari API baru (hanya utk chart, lebih cepat)
-    async fetchSensorData(nodeId, childId, limit = 48) {
+    async fetchSensorData(nodeId, childId, limit = 24) {
       if (this.mode === 'local') {
         const data = await this.localFetch(`/api/getSensorData?node=${nodeId}&child=${childId}&limit=${limit}`, { timeoutMs: 5000 });
         if (data && Array.isArray(data.points)) return data.points;
@@ -2660,6 +2672,15 @@ function app() {
           this.logChartMetric = this.logChartMetrics[0]?.key || 'temperature';
         }
         this.logPage = 0;
+        // Redraw semua canvas chart setelah data baru
+        this.$nextTick(() => {
+          for (const metric of this.logChartMetrics) {
+            const canvas = document.getElementById('chart-' + metric.key);
+            if (canvas && canvas.parentElement) {
+              this.drawChart(metric.key, canvas.parentElement);
+            }
+          }
+        });
       }
       if (this.logChartSelectedIndex !== null && this.logChartSelectedIndex >= this.logChartSeries.points.length) {
         this.logChartSelectedIndex = null;
@@ -2702,7 +2723,9 @@ function app() {
         ts: point.ts,
         value: point.value,
         x: point.x,
-        y: point.y
+        y: point.y,
+        canvasX: undefined,
+        canvasY: undefined
       };
     },
     updateLogChartHover(metricKey, event) {
@@ -2723,10 +2746,117 @@ function app() {
           nearest = point;
         }
       }
-      if (nearest) this.selectLogChartPoint(series, nearest);
+      if (nearest) {
+        this.selectLogChartPoint(series, nearest);
+        // Redraw canvas to show hover point
+        this.drawChart(metricKey, event.currentTarget);
+      }
     },
     clearLogChartPoint() {
       this.logChartActivePoint = null;
+      // Redraw all chart canvases
+      const metrics = this.logChartMetrics;
+      for (const metric of metrics) {
+        const canvas = document.getElementById('chart-' + metric.key);
+        if (canvas && canvas.parentElement) {
+          this.drawChart(metric.key, canvas.parentElement);
+        }
+      }
+    },
+    debounceDrawChart(metricKey) {
+      if (this._chartDebounce) clearTimeout(this._chartDebounce);
+      this._chartDebounce = setTimeout(() => this.drawChart(metricKey), 150);
+    },
+    drawChart(metricKey, surfaceEl) {
+      const series = this.getLogChartSeries(metricKey);
+      if (!series || !series.points || !series.points.length) return;
+      const canvas = document.getElementById('chart-' + metricKey);
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+      if (w < 10 || h < 10) return;
+      // Set canvas pixel dimensions (use devicePixelRatio for HiDPI)
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      // Clear
+      ctx.clearRect(0, 0, w, h);
+      // Margins
+      const ml = 8, mr = 8, mt = 12, mb = 16;
+      const plotW = w - ml - mr;
+      const plotH = h - mt - mb;
+      if (plotW < 10 || plotH < 10) return;
+      // Determine value range from points
+      const vals = series.points.map(p => p.value);
+      const valMin = Math.min(...vals);
+      const valMax = Math.max(...vals);
+      const valRange = Math.max(1, valMax - valMin);
+      const tsMin = series.points[0].ts;
+      const tsMax = series.points[series.points.length - 1].ts;
+      const tsRange = Math.max(1, tsMax - tsMin);
+      // Grid lines (horizontal)
+      ctx.strokeStyle = 'rgba(107, 114, 128, 0.2)';
+      ctx.lineWidth = 0.5;
+      for (let i = 0; i <= 4; i++) {
+        const y = mt + (plotH * i / 4);
+        ctx.beginPath();
+        ctx.moveTo(ml, y);
+        ctx.lineTo(ml + plotW, y);
+        ctx.stroke();
+      }
+      // Data line
+      const color = series.color || '#25f4b8';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      for (let i = 0; i < series.points.length; i++) {
+        const p = series.points[i];
+        const x = ml + ((p.ts - tsMin) / tsRange) * plotW;
+        const y = mt + plotH - ((p.value - valMin) / valRange) * plotH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      // Latest point marker
+      const last = series.points[series.points.length - 1];
+      if (last) {
+        const lx = ml + ((last.ts - tsMin) / tsRange) * plotW;
+        const ly = mt + plotH - ((last.value - valMin) / valRange) * plotH;
+        ctx.beginPath();
+        ctx.arc(lx, ly, 5, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      // Hover point highlight
+      if (this.logChartActivePoint && this.logChartActivePoint.key === metricKey) {
+        const hp = this.logChartActivePoint;
+        const hx = ml + ((hp.ts - tsMin) / tsRange) * plotW;
+        const hy = mt + plotH - ((hp.value - valMin) / valRange) * plotH;
+        ctx.beginPath();
+        ctx.arc(hx, hy, 6, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        // Tooltip position (store for HTML overlay)
+        if (surfaceEl) {
+          const surfRect = surfaceEl.getBoundingClientRect();
+          this.logChartActivePoint.canvasX = hx;
+          this.logChartActivePoint.canvasY = hy;
+        }
+      }
     },
     getLogSensorSnapshot(entry) {
       if (!entry) return {};

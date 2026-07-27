@@ -1030,44 +1030,15 @@
                   <span
                     x-text="formatNilaiSensor(getLogChartExtents(getLogChartSeries(metric.key)).min, metric.unit)"></span>
                 </div>
-                <div class="log-chart-surface" @pointermove="updateLogChartHover(metric.key, $event)"
-                  @mouseenter="updateLogChartHover(metric.key, $event)" @mouseleave="clearLogChartPoint()">
-                  <svg viewBox="0 0 100 100" class="log-chart-svg" preserveAspectRatio="none">
-                    <g class="log-chart-grid">
-                      <line x1="6" y1="20" x2="94" y2="20"></line>
-                      <line x1="6" y1="40" x2="94" y2="40"></line>
-                      <line x1="6" y1="60" x2="94" y2="60"></line>
-                      <line x1="6" y1="80" x2="94" y2="80"></line>
-                    </g>
-                    <path x-show="getLogChartSeries(metric.key).path" :d="getLogChartSeries(metric.key).path"
-                      class="log-chart-line" :class="getLogChartSeries(metric.key).lineClass"></path>
-                  </svg>
-                  <div class="log-chart-point-layer">
-                    <template x-for="(point, index) in getLogChartSeries(metric.key).points"
-                      :key="`${metric.key}-${point.ts}-${point.value}`">
-                      <button type="button" class="log-chart-point-marker"
-                        :class="[getLogChartSeries(metric.key).lineClass, logChartActivePoint && logChartActivePoint.key === metric.key && logChartActivePoint.ts === point.ts && logChartActivePoint.value === point.value ? 'is-selected' : '']"
-                        :style="{ left: `${point.x}%`, top: `${point.y}%`, backgroundColor: getLogChartSeries(metric.key).color, borderColor: getLogChartSeries(metric.key).color }"
-                        @mouseenter="selectLogChartPoint(getLogChartSeries(metric.key), point)"
-                        @pointerdown.stop.prevent="selectLogChartPoint(getLogChartSeries(metric.key), point)"
-                        @touchstart.stop.prevent="selectLogChartPoint(getLogChartSeries(metric.key), point)"
-                        @click.stop.prevent="selectLogChartPoint(getLogChartSeries(metric.key), point)"
-                        :aria-label="`${metric.label} ${formatNilaiSensor(point.value, metric.unit)} ${formatLogTimestamp(point.ts)}`">
-                        <span class="log-chart-point-marker-inner"></span>
-                      </button>
-                    </template>
-                  </div>
-                  <div class="log-chart-x-axis"
-                    style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.25rem;padding:0 6px;margin-top:6px;font-size:10px;line-height:1.2;color:#6b7280;">
-                    <template x-for="tick in getLogChartScaleTicks(getLogChartSeries(metric.key))"
-                      :key="`${metric.key}-${tick.label}-${tick.x}`">
-                      <span
-                        :style="tick.x < 33 ? 'text-align:left' : tick.x > 66 ? 'text-align:right' : 'text-align:center'"
-                        x-text="tick.label"></span>
-                    </template>
-                  </div>
+                <div class="log-chart-surface"
+                  @pointermove="updateLogChartHover(metric.key, $event); drawChart(metric.key, $event.currentTarget)"
+                  @mouseenter="updateLogChartHover(metric.key, $event)" @mouseleave="clearLogChartPoint(); drawChart(metric.key, $event.currentTarget)">
+                  <canvas :id="'chart-'+metric.key" class="log-chart-canvas"
+                    @resize.window="debounceDrawChart(metric.key)">
+                  </canvas>
                   <div class="log-chart-tooltip log-chart-tooltip-fixed"
-                    x-show="logChartActivePoint && logChartActivePoint.key === metric.key">
+                    x-show="logChartActivePoint && logChartActivePoint.key === metric.key"
+                    :style="logChartActivePoint && logChartActivePoint.canvasX !== undefined ? `left:${logChartActivePoint.canvasX}px;top:${Math.max(logChartActivePoint.canvasY - 50, 4)}px` : ''">
                     <div class="log-chart-tooltip-title" x-text="logChartActivePoint ? logChartActivePoint.label : ''">
                     </div>
                     <div class="log-chart-tooltip-subtitle"
