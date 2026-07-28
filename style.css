@@ -1958,7 +1958,7 @@ html.theme-light body.has-custom-bg .status-inline.badge-info .status-inline-ico
 }
 
 .log-chart-frame {
-  /* Y-axis labels drawn on canvas — no grid needed */
+  width: 100%;
 }
 
 .log-chart-surface {

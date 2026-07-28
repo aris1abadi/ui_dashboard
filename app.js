@@ -838,16 +838,30 @@ function app() {
       });
       // Redraw saat metric berubah
       this.$watch('logChartMetric', () => {
-        if (this.showLogModal) {
+        if (this.showLogModal && this.logFilter === 'sensor') {
           setTimeout(() => {
             try {
               const metric = this.selectedLogChartMetric;
               if (metric) {
                 const canvas = document.getElementById('chart-' + metric.key);
-                if (canvas && canvas.parentElement) this.drawChart(metric.key, canvas.parentElement);
+                if (canvas) this.drawChart(metric.key, canvas.parentElement);
               }
             } catch(e) { console.warn('Chart draw error:', e); }
           }, 50);
+        }
+      });
+      // Redraw saat pindah tab ke sensor
+      this.$watch('logFilter', () => {
+        if (this.showLogModal && this.logFilter === 'sensor') {
+          setTimeout(() => {
+            try {
+              const metric = this.selectedLogChartMetric;
+              if (metric) {
+                const canvas = document.getElementById('chart-' + metric.key);
+                if (canvas) this.drawChart(metric.key, canvas.parentElement);
+              }
+            } catch(e) { console.warn('Chart draw error:', e); }
+          }, 100);
         }
       });
     },
@@ -2831,11 +2845,9 @@ function app() {
     },
     drawChart(metricKey, surfaceEl) {
       try {
-      const series = this.getLogChartSeries(metricKey);
-      if (!series || !series.points || !series.points.length) return;
       const canvas = document.getElementById('chart-' + metricKey);
       if (!canvas) return;
-      // Get dimensions: prefer CSS size, fallback to clientWidth/Height
+      // Get dimensions: prefer clientWidth, fallback to computed style
       let w = canvas.clientWidth;
       let h = canvas.clientHeight;
       if (w < 10 || h < 10) {
@@ -2844,12 +2856,22 @@ function app() {
         h = rect.height;
       }
       if (w < 10 || h < 10) {
-        // Last resort: force dimensions from CSS
         const cs = getComputedStyle(canvas);
         w = parseFloat(cs.width) || 300;
         h = parseFloat(cs.height) || 180;
       }
-      if (w < 10 || h < 10) return;
+      if (w < 10 || h < 10) {
+        // Canvas masih hidden, coba lagi nanti
+        if (!canvas._chartRetry) {
+          canvas._chartRetry = setTimeout(() => {
+            canvas._chartRetry = null;
+            try { this.drawChart(metricKey, surfaceEl); } catch(e) {}
+          }, 200);
+        }
+        return;
+      }
+      const series = this.getLogChartSeries(metricKey);
+      if (!series || !series.points || !series.points.length) return;
       // Set canvas pixel dimensions (use devicePixelRatio for HiDPI)
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.round(w * dpr);
