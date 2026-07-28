@@ -1060,8 +1060,8 @@
                 x-text="metric.label"></h4>
               <div class="log-chart-frame">
                 <div class="log-chart-surface"
-                  @pointermove="updateLogChartHover(metric.key, $event); drawChart(metric.key, $event.currentTarget)"
-                  @mouseenter="updateLogChartHover(metric.key, $event)" @mouseleave="clearLogChartPoint(); drawChart(metric.key, $event.currentTarget)">
+                  @pointermove="updateLogChartHover(metric.key, $event)"
+                  @mouseenter="updateLogChartHover(metric.key, $event)" @mouseleave="clearLogChartPoint()">
                   <canvas :id="'chart-'+metric.key" class="log-chart-canvas"
                     x-init="$nextTick(() => { const el = $el.parentElement; if (el) drawChart(metric.key, el); })">
                   </canvas>

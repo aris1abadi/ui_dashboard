@@ -499,7 +499,11 @@ function app() {
       const perPage = Math.max(1, Number(this.logPerPage) || 50);
       return Math.max(1, Math.ceil(this.filteredLogs.length / perPage));
     },
-    get sensorLogEntries() { return this.logs.filter(entry => Number(entry?.type) === 0); },
+    get sensorLogEntries() {
+      const entries = this.logs.filter(entry => Number(entry?.type) === 0);
+      // Limit to newest 100 entries to prevent chart computation from freezing
+      return entries.length > 100 ? entries.slice(-100) : entries;
+    },
     get logChartMetrics() {
       const registered = (this.sensors || [])
         .map(sensor => {
@@ -2814,18 +2818,10 @@ function app() {
       }
       if (nearest) {
         this.selectLogChartPoint(series, nearest);
-        // Redraw canvas to show hover point
-        this.drawChart(metricKey, event.currentTarget);
       }
     },
     clearLogChartPoint() {
       this.logChartActivePoint = null;
-      // Redraw only currently visible chart
-      const metric = this.selectedLogChartMetric;
-      if (metric) {
-        const canvas = document.getElementById('chart-' + metric.key);
-        if (canvas) this.drawChart(metric.key, canvas.parentElement);
-      }
     },
     debounceDrawChart(metricKey) {
       if (this._chartDebounce) clearTimeout(this._chartDebounce);
