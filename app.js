@@ -5,6 +5,7 @@ const defaults = {
   uiId: '',
   kontrolIds: ['KA-0000'],
   kontrolAliases: {},
+  cloudBaseUrl: '',
   mqtt: {
     url: 'wss://z442812a.ala.asia-southeast1.emqxsl.com:8084/mqtt',
     username: '',
@@ -311,7 +312,7 @@ function app() {
     wifiScanResults: [], wifiScanLoading: false, wifiScanError: '', wifiScanAt: null, wifiScanFilter: 'all',
     // deepSleep moved to per-sensor calibration modals
     // State log
-    logs: [], logFilter: 'system', logPage: 0, logPerPage: 50, logCount: 0, logStorage: '0 B', logLoading: false, logChartMetric: 'temperature', logChartSelectedIndex: null, logChartHiddenSeries: [], logChartActivePoint: null, logDownload: { start: '', end: '', busy: false, error: '', progress: 0, status: '', totalPages: 0, processedPages: 0, mode: '', totalLogs: 0 }, pendingLogDownloads: {},
+    logs: [], logFilter: 'system', logPage: 0, logPerPage: 50, logCount: 0, logStorage: '0 B', logLoading: false, showLogFilterPanel: false, logChartMetric: 'temperature', _chartPointsCache: {}, logChartSelectedIndex: null, logChartHiddenSeries: [], logChartActivePoint: null, logDownload: { start: '', end: '', busy: false, error: '', progress: 0, status: '', totalPages: 0, processedPages: 0, mode: '', totalLogs: 0 }, pendingLogDownloads: {},
     // Cache chart agar tidak rekomputasi tiap render
     _cachedChartSeriesList: null,
     _cachedChartSeriesVersion: 0,
@@ -500,9 +501,7 @@ function app() {
       return Math.max(1, Math.ceil(this.filteredLogs.length / perPage));
     },
     get sensorLogEntries() {
-      const entries = this.logs.filter(entry => Number(entry?.type) === 0);
-      // Limit to newest 100 entries to prevent chart computation from freezing
-      return entries.length > 100 ? entries.slice(-100) : entries;
+      return this.logs.filter(entry => Number(entry?.type) === 0);
     },
     get logChartMetrics() {
       const registered = (this.sensors || [])
@@ -548,26 +547,24 @@ function app() {
         { key: 'humidity', label: 'Humidity', unit: '%' },
         { key: 'soil', label: 'Soil Moisture', unit: '%' }
       ];
-      const discovered = new Map();
-      const blocked = new Set(['type', 'ts', 'timestamp', 'data', 'user', 'label', 'node', 'child', 'raw', 'valueType', 'unit', 'source', 'sourceLabel', 'sourceNode', 'sourceChild', 'sourceValueType', 'sourceValue']);
+      // Build metrics from log entries' node:child pairs (fallback when no registered sensors)
+      const sensorKeys = new Map();
       for (const entry of this.sensorLogEntries) {
         const snapshot = this.getLogSensorSnapshot(entry);
-        Object.entries(snapshot).forEach(([key, value]) => {
-          if (blocked.has(key) || key.startsWith('source')) return;
-          const numeric = Number(value);
-          if (!Number.isFinite(numeric)) return;
-          if (!discovered.has(key)) {
-            discovered.set(key, {
-              key,
-              label: this.getLogMetricLabel(key),
-              unit: this.getLogMetricUnit(key)
-            });
-          }
-        });
+        const nodeId = toNumber(snapshot?.node ?? snapshot?.sourceNode, -1);
+        const childId = toNumber(snapshot?.child ?? snapshot?.sourceChild, -1);
+        if (nodeId < 0 || childId < 0) continue;
+        const key = `${nodeId}:${childId}`;
+        if (!sensorKeys.has(key)) {
+          const label = snapshot?.label || `Sensor ${nodeId}:${childId}`;
+          const unit = snapshot?.unit || '';
+          sensorKeys.set(key, { key, label, unit, sensorNode: nodeId, sensorChild: childId });
+        }
       }
-      const ordered = ['temperature', 'humidity', 'soil'].filter(key => discovered.has(key)).map(key => discovered.get(key));
-      const remaining = Array.from(discovered.values()).filter(item => !['temperature', 'humidity', 'soil'].includes(item.key));
-      return ordered.length || remaining.length ? [...ordered, ...remaining] : fallback;
+      if (sensorKeys.size > 0) {
+        return Array.from(sensorKeys.values());
+      }
+      return fallback;
     },
     get selectedLogChartMetric() {
       return this.logChartMetrics.find(metric => metric.key === this.logChartMetric) || this.logChartMetrics[0] || null;
@@ -877,6 +874,7 @@ function app() {
         ...parsed, 
         kontrolIds, 
         kontrolAliases: parsed.kontrolAliases || {},
+        cloudBaseUrl: `${parsed.cloudBaseUrl || ''}`.trim() || defaults.cloudBaseUrl,
         mqtt: {
           ...defaults.mqtt,
           ...parsedMqtt,
@@ -2487,7 +2485,8 @@ function app() {
       this.logPage = 0;
       this.logLoading = true;
       this.ensureDefaultLogDownloadRange();
-      if (this.mode === 'mqtt') this.publishCommand('getLogs', [0, 30]);
+      // Fetch more logs (200) so all sensors have data
+      if (this.mode === 'mqtt') this.publishCommand('getLogs', [0, 200]);
       else this.loadLocalLogs();
       } catch(e) { console.warn('openLogModal error:', e); this.logLoading = false; }
     },
@@ -2776,15 +2775,38 @@ function app() {
       this.logChartMetric = metric;
       this.logChartSelectedIndex = null;
       this.logChartActivePoint = null;
-      // Redraw canvas untuk metric baru
-      setTimeout(() => {
-        try {
-          const canvas = document.getElementById('chart-' + metric);
-          if (canvas && canvas.parentElement) {
-            this.drawChart(metric, canvas.parentElement);
-          }
-        } catch(e) { console.warn('Chart draw error:', e); }
-      }, 50);
+      // Lazy load: fetch data spesifik untuk sensor yang dipilih
+      const parts = metric.split(':');
+      if (parts.length === 2) {
+        const nodeId = parseInt(parts[0]);
+        const childId = parseInt(parts[1]);
+        if (Number.isFinite(nodeId) && Number.isFinite(childId)) {
+          // Mark chart dirty so it recomputes
+          this.markChartDirty();
+          // Fetch data dan simpan di cache
+          this.fetchSensorData(nodeId, childId, 24).then(points => {
+            if (Array.isArray(points) && points.length) {
+              this._chartPointsCache[metric] = points;
+            }
+            // Redraw canvas untuk metric baru
+            setTimeout(() => {
+              try {
+                const canvas = document.getElementById('chart-' + metric);
+                if (canvas) this.drawChart(metric, canvas.parentElement);
+              } catch(e) { console.warn('Chart draw error:', e); }
+            }, 50);
+          });
+        }
+      } else {
+        // Fallback: redraw tanpa lazy load
+        this.markChartDirty();
+        setTimeout(() => {
+          try {
+            const canvas = document.getElementById('chart-' + metric);
+            if (canvas) this.drawChart(metric, canvas.parentElement);
+          } catch(e) { console.warn('Chart draw error:', e); }
+        }, 50);
+      }
     },
     toggleLogChartSeries(metric) {
       if (!metric) return;
@@ -2870,8 +2892,16 @@ function app() {
         }
         return;
       }
-      const series = this.getLogChartSeries(metricKey);
-      if (!series || !series.points || !series.points.length) return;
+      // Try cached points first (faster, from lazy-load)
+      let points = this._chartPointsCache?.[metricKey];
+      if (!points || !points.length) {
+        // Fallback to chart series (from this.logs)
+        const series = this.getLogChartSeries(metricKey);
+        if (series && series.points && series.points.length) {
+          points = series.points;
+        }
+      }
+      if (!points || !points.length) return;
       // Set canvas pixel dimensions (use devicePixelRatio for HiDPI)
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.round(w * dpr);
@@ -2883,12 +2913,12 @@ function app() {
       const plotW = Math.max(10, w - ml - mr);
       const plotH = Math.max(10, h - mt - mb);
       // Determine value range from points
-      const vals = series.points.map(p => p.value);
+      const vals = points.map(p => p.value);
       const valMin = Math.min(...vals);
       const valMax = Math.max(...vals);
       const valRange = Math.max(0.1, valMax - valMin);
-      const tsMin = series.points[0].ts;
-      const tsMax = series.points[series.points.length - 1].ts;
+      const tsMin = points[0].ts;
+      const tsMax = points[points.length - 1].ts;
       const tsRange = Math.max(1, tsMax - tsMin);
       // Grid lines (horizontal)
       ctx.strokeStyle = 'rgba(107, 114, 128, 0.2)';
@@ -2940,8 +2970,8 @@ function app() {
       ctx.shadowColor = color;
       ctx.shadowBlur = 6;
       ctx.beginPath();
-      for (let i = 0; i < series.points.length; i++) {
-        const p = series.points[i];
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i];
         const x = ml + ((p.ts - tsMin) / tsRange) * plotW;
         const y = mt + plotH - ((p.value - valMin) / valRange) * plotH;
         if (i === 0) ctx.moveTo(x, y);
@@ -2950,7 +2980,7 @@ function app() {
       ctx.stroke();
       ctx.shadowBlur = 0;
       // Latest point marker
-      const last = series.points[series.points.length - 1];
+      const last = points[points.length - 1];
       if (last) {
         const lx = ml + ((last.ts - tsMin) / tsRange) * plotW;
         const ly = mt + plotH - ((last.value - valMin) / valRange) * plotH;
@@ -3574,6 +3604,90 @@ function app() {
       this.publishCommand('setSensorSleep', [s.nodeId, s.childId, s.intervalSec * 60 * 1000]);
       this.showToast('Interval node ' + s.nodeId + ':' + s.childId + ' disimpan.', 'success');
       this.closeSensorInterval();
+    },
+
+    // ─── Cloud / Riwayat ───
+    showCloudModal: false,
+    cloudHistory: [],
+    cloudHistoryLoading: false,
+    cloudHistoryError: '',
+    cloudActiveTab: 'greenhouse',
+    cloudDateRange: '24h',
+    cloudDataCount: 0,
+
+    get cloudBase() {
+      return this.config.cloudBaseUrl || '';
+    },
+    get cloudEnabled() {
+      return !!this.cloudBase && this.cloudBase.startsWith('http');
+    },
+    get cloudKontrolId() {
+      return this.mqttKontrolId || this.login.kontrolId || this.config.mqtt.kontrolId;
+    },
+
+    openCloudHistory() {
+      this.showCloudModal = true;
+      this.cloudActiveTab = 'greenhouse';
+      this.cloudDateRange = '24h';
+      this.fetchCloudData();
+    },
+    closeCloudHistory() {
+      this.showCloudModal = false;
+      this.cloudHistory = [];
+      this.cloudHistoryError = '';
+    },
+
+    async fetchCloudData() {
+      if (!this.cloudEnabled) return;
+      this.cloudHistoryLoading = true;
+      this.cloudHistoryError = '';
+      const base = this.cloudBase.replace(/\/+$/, '');
+      const kid = this.cloudKontrolId;
+      const since = this.cloudDateRange === 'all' ? '' : new Date(Date.now() - {
+        '1h': 3600000,
+        '6h': 21600000,
+        '24h': 86400000,
+        '7d': 604800000,
+        '30d': 2592000000,
+      }[this.cloudDateRange] || 86400000).toISOString();
+
+      try {
+        let url;
+        if (this.cloudActiveTab === 'greenhouse') {
+          url = `${base}/api/v1/devices/${kid}/greenhouse?limit=100`;
+          if (since) url += `&since=${encodeURIComponent(since)}`;
+        } else if (this.cloudActiveTab === 'sensors') {
+          url = `${base}/api/v1/devices/${kid}/sensors/latest`;
+        } else if (this.cloudActiveTab === 'actuators') {
+          url = `${base}/api/v1/devices/${kid}/actuators/latest`;
+        } else if (this.cloudActiveTab === 'summary') {
+          url = `${base}/api/v1/summary/${kid}`;
+        }
+        const resp = await fetch(url);
+        const json = await resp.json();
+        if (!json.ok) throw new Error(json.error || 'Gagal memuat data');
+        this.cloudHistory = json.data || json;
+        this.cloudDataCount = json.count || (Array.isArray(json) ? json.length : 1);
+      } catch (err) {
+        this.cloudHistoryError = err.message || 'Gagal terhubung ke cloud backend';
+        this.cloudHistory = [];
+      } finally {
+        this.cloudHistoryLoading = false;
+      }
+    },
+
+    formatCloudTime(iso) {
+      if (!iso) return '-';
+      const d = new Date(iso);
+      return d.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'medium' });
+    },
+    formatCloudValue(v) {
+      if (v === null || v === undefined) return '-';
+      if (typeof v === 'number') return v.toFixed(1);
+      return v;
+    },
+    cloudBool(v) {
+      return v ? 'Aktif' : 'Mati';
     },
   };
 }

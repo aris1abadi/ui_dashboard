@@ -278,6 +278,8 @@
       <div class="status-stack">
         <button @click="openLogModal()" class="btn icon-btn" title="Log Aktivitas"
           :disabled="actionInFlight">📋</button>
+        <button x-show="cloudEnabled" @click="openCloudHistory()" class="btn icon-btn"
+          title="Riwayat Cloud">☁️</button>
         <button @click="openSettings()" class="btn icon-btn" title="Setelan" :disabled="actionInFlight">⚙</button>
         <button x-show="canInstallPwa" @click="installPwa()" class="btn icon-btn" title="Pasang Aplikasi"
           :disabled="actionInFlight">⬇</button>
@@ -370,8 +372,7 @@
           @click="openSettingsTab('setup')">Umum</button>
         <button class="tab-btn" :class="{'active': settingsTab === 'nodes'}"
           @click="openSettingsTab('nodes')">Node</button>
-        <button x-show="!(mode === 'mqtt' && connected) && !showMaintenanceTab" class="tab-btn"
-          :class="{'active': settingsTab === 'settings'}"
+        <button class="tab-btn" :class="{'active': settingsTab === 'settings'}"
           @click="openSettingsTab('settings')">Koneksi</button>
         <button x-show="showMaintenanceTab" class="tab-btn" :class="{'active': settingsTab === 'maintenance'}"
           @click="openSettingsTab('maintenance')">Jaringan & Pembaruan</button>
@@ -631,14 +632,30 @@
         </div>
       </div>
 
-      <div class="tab-panel" x-show="settingsTab === 'settings' && !(mode === 'mqtt' && connected) && !showMaintenanceTab"
-        x-transition>
+      <div class="tab-panel" x-show="settingsTab === 'settings'" x-transition>
+        <!-- Cloud Backend — selalu tampil -->
         <div class="form-group">
-          <label>Alamat Dasar Lokal</label>
-          <input type="text" placeholder="http://192.168.4.1" x-model.lazy="config.localBaseUrl" />
+          <label>☁️ Alamat Cloud Backend (Riwayat)</label>
+          <input type="text" placeholder="https://vps-anda:4000" x-model.lazy="config.cloudBaseUrl" />
+          <p class="help">Biarkan kosong jika tidak pakai cloud. Untuk testing lokal: http://IP_PC:4000</p>
         </div>
+
+        <!-- Koneksi Lokal — hanya saat mode lokal atau offline -->
+        <div x-show="mode !== 'mqtt' || !connected">
+          <hr class="my-4 border-gray-700" />
+          <p class="text-sm font-bold text-gray-300 mb-3">🔌 Koneksi Lokal</p>
+          <div class="form-group">
+            <label>Alamat Dasar Lokal</label>
+            <input type="text" placeholder="http://192.168.4.1" x-model.lazy="config.localBaseUrl" />
+            <p class="help">Gunakan http://192.168.4.1 untuk koneksi langsung ke AP kontroller.</p>
+          </div>
+        </div>
+
+        <!-- Koneksi Online (MQTT) — selalu tampil -->
+        <hr class="my-4 border-gray-700" />
+        <p class="text-sm font-bold text-gray-300 mb-3">🌐 Koneksi Online (MQTT)</p>
         <div class="form-group">
-          <label>Alamat Koneksi Online</label>
+          <label>Alamat Broker MQTT</label>
           <input type="text" placeholder="wss://..." x-model.lazy="config.mqtt.url" />
         </div>
         <div class="form-row">
@@ -647,6 +664,11 @@
           <div class="form-group"><label>Sandi</label><input type="password" x-model.lazy="config.mqtt.password" />
           </div>
         </div>
+        <p class="help">MQTT tetap dipakai untuk kontrol dari dashboard ke kontroller.</p>
+
+        <!-- Pengaturan Umum — selalu tampil -->
+        <hr class="my-4 border-gray-700" />
+        <p class="text-sm font-bold text-gray-300 mb-3">⚙️ Pengaturan Umum</p>
         <div class="form-group">
           <label>Durasi Manual (menit): <span x-text="Math.round(config.manualDurationMs / 60000)"></span></label>
           <input type="range" min="1" max="60" step="1" :value="Math.round(config.manualDurationMs / 60000)"
@@ -800,9 +822,12 @@
           :disabled="actionInFlight">
           Reset Cache App
         </button>
-        <button x-show="settingsTab === 'settings' && !(mode === 'mqtt' && connected) && !showMaintenanceTab && mode !== 'mqtt'"
+        <button x-show="settingsTab === 'settings' && mode !== 'mqtt'"
           @click="saveAndReconnect"
           class="btn primary">Simpan & Sambungkan</button>
+        <button x-show="settingsTab === 'settings' && mode === 'mqtt'"
+          @click="saveConfig(); showSettingsModal = false; showToast('Pengaturan tersimpan.')"
+          class="btn primary">Simpan</button>
         <button x-show="settingsTab === 'maintenance' && showMaintenanceTab" @click="showSettingsModal = false"
           class="btn primary">Tutup</button>
       </div>
@@ -994,70 +1019,58 @@
       <div class="modal-header">
         <h3>📋 Log Aktivitas</h3><button @click="showLogModal = false" class="modal-close">×</button>
       </div>
-      <div class="modal-body p-8 overflow-y-auto">
-        <div class="flex flex-wrap gap-2 mb-6">
+      <div class="modal-body p-4 overflow-y-auto">
+        <!-- Tab System / Sensor -->
+        <div class="flex flex-wrap gap-2 mb-4">
           <button @click="logFilter = 'system'" class="btn small"
             :class="logFilter === 'system' ? 'primary' : 'ghost'">System</button>
           <button @click="logFilter = 'sensor'" class="btn small"
             :class="logFilter === 'sensor' ? 'primary' : 'ghost'">Sensor</button>
+          <button @click="showLogFilterPanel = !showLogFilterPanel" class="btn icon-btn small ml-auto" title="Filter & Download">⚙️</button>
         </div>
-        <!-- Info file structure -->
-        <div class="mb-6 text-[11px] text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
-          <span>📁 <span class="text-gray-400">/logs/system/</span> — Event, Status, Custom</span>
-          <span>📁 <span class="text-gray-400">/logs/sensor/&lt;node&gt;_&lt;child&gt;/</span> — per sensor</span>
-        </div>
-        <div class="mb-6 rounded-2xl border border-[#2a2a30] bg-black/20 p-4">
-          <div class="flex flex-wrap gap-2 mb-3">
-            <button @click="setLogDownloadPreset(1)" class="btn small ghost" :disabled="logDownload.busy">1
-              Hari</button>
-            <button @click="setLogDownloadPreset(7)" class="btn small ghost" :disabled="logDownload.busy">7
-              Hari</button>
-            <button @click="setLogDownloadPreset(30)" class="btn small ghost" :disabled="logDownload.busy">1
-              Bulan</button>
+        <!-- Panel filter tanggal (collapsible) -->
+        <div x-show="showLogFilterPanel" class="mb-4 rounded-2xl border border-[#2a2a30] bg-black/20 p-3">
+          <div class="flex flex-wrap gap-2 mb-2">
+            <button @click="setLogDownloadPreset(1)" class="btn small ghost" :disabled="logDownload.busy">1 Hari</button>
+            <button @click="setLogDownloadPreset(7)" class="btn small ghost" :disabled="logDownload.busy">7 Hari</button>
+            <button @click="setLogDownloadPreset(30)" class="btn small ghost" :disabled="logDownload.busy">1 Bulan</button>
           </div>
-          <div class="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+          <div class="grid gap-2 md:grid-cols-[1fr_1fr_auto] md:items-end">
             <label class="block">
-              <span class="block text-[11px] uppercase tracking-[0.18em] text-gray-500 mb-2">Dari</span>
+              <span class="block text-[10px] uppercase tracking-widest text-gray-500 mb-1">Dari</span>
               <input x-model="logDownload.start" type="datetime-local"
-                class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white"
+                class="w-full bg-[#202026] border border-[#2a2a30] p-2 rounded-xl text-white text-xs"
                 :disabled="logDownload.busy" />
             </label>
             <label class="block">
-              <span class="block text-[11px] uppercase tracking-[0.18em] text-gray-500 mb-2">Sampai</span>
+              <span class="block text-[10px] uppercase tracking-widest text-gray-500 mb-1">Sampai</span>
               <input x-model="logDownload.end" type="datetime-local"
-                class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white"
+                class="w-full bg-[#202026] border border-[#2a2a30] p-2 rounded-xl text-white text-xs"
                 :disabled="logDownload.busy" />
             </label>
             <button @click="downloadSensorLogsCsv()" class="btn primary small h-fit md:mb-[2px]"
               :disabled="logDownload.busy">Unduh CSV</button>
           </div>
-          <div class="mt-4" x-show="logDownload.busy">
-            <div class="flex items-center justify-between text-xs text-gray-400 mb-2">
-              <span x-text="logDownload.status || 'Memproses unduhan...'"></span>
+          <div class="mt-2" x-show="logDownload.busy">
+            <div class="flex items-center justify-between text-xs text-gray-400 mb-1">
+              <span x-text="logDownload.status || 'Memproses...'"></span>
               <span x-text="`${Math.round(logDownload.progress || 0)}%`"></span>
             </div>
-            <div class="h-2 rounded-full bg-[#202026] overflow-hidden border border-[#2a2a30]">
+            <div class="h-1.5 rounded-full bg-[#202026] overflow-hidden border border-[#2a2a30]">
               <div class="h-full rounded-full bg-primary transition-all duration-200"
                 :style="{ width: `${Math.max(0, Math.min(100, logDownload.progress || 0))}%` }"></div>
             </div>
           </div>
-          <p class="mt-2 text-xs text-red-500" x-show="logDownload.error" x-text="logDownload.error"></p>
+          <p class="mt-1 text-xs text-red-500" x-show="logDownload.error" x-text="logDownload.error"></p>
         </div>
-        <div class="mb-6" x-show="logFilter === 'sensor'">
-          <!-- Pilih grafik sensor -->
-          <div class="mb-4">
-            <select x-model="logChartMetric" class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white text-sm">
-              <template x-for="metric in logChartMetrics" :key="metric.key">
-                <option :value="metric.key" x-text="metric.label"></option>
-              </template>
-            </select>
-          </div>
-          <!-- Grafik terpilih -->
+        <div x-show="logFilter === 'sensor'">
+          <select x-model="logChartMetric" class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white text-sm mb-3">
+            <template x-for="metric in logChartMetrics" :key="metric.key">
+              <option :value="metric.key" x-text="metric.label"></option>
+            </template>
+          </select>
           <template x-for="metric in logChartMetrics" :key="metric.key">
-            <div class="mb-6" x-show="metric.key === logChartMetric">
-              <h4 class="log-chart-title mb-3"
-                :class="getLogChartSeries(metric.key).points.length ? 'log-chart-title-has-data' : 'log-chart-title-empty'"
-                x-text="metric.label"></h4>
+            <div x-show="metric.key === logChartMetric">
               <div class="log-chart-frame">
                 <div class="log-chart-surface"
                   @pointermove="updateLogChartHover(metric.key, $event)"
@@ -1077,12 +1090,6 @@
                       x-text="logChartActivePoint ? formatLogTimestamp(logChartActivePoint.ts) : ''"></div>
                   </div>
                 </div>
-              </div>
-              <div class="log-chart-point-hint" x-show="logChartActivePoint && logChartActivePoint.key === metric.key">
-                <span x-text="logChartActivePoint ? logChartActivePoint.label : ''"></span>
-                <span
-                  x-text="logChartActivePoint ? formatNilaiSensor(logChartActivePoint.value, logChartActivePoint.unit) : ''"></span>
-                <span x-text="logChartActivePoint ? formatLogTimestamp(logChartActivePoint.ts) : ''"></span>
               </div>
             </div>
           </template>
@@ -1293,6 +1300,174 @@
         <button @click.stop="showDeleteConfirm = false" class="btn ghost">Batal</button>
         <button x-show="allowTaskDelete" @click.stop="confirmDelete" class="btn badge-danger"
           :disabled="actionInFlight">Ya, Hapus</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- === Modal Riwayat Cloud === -->
+  <div x-show="showCloudModal" x-transition class="modal" role="dialog" aria-modal="true"
+    @click.self="closeCloudHistory()" @keydown.escape.window="closeCloudHistory()">
+    <div class="modal-card cloud-modal" style="max-width: 640px;">
+      <div class="modal-header">
+        <div>
+          <h3 class="text-lg font-bold">☁️ Riwayat Cloud</h3>
+          <p class="text-xs text-gray-400" x-text="cloudKontrolId"></p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button @click="fetchCloudData()" class="btn ghost small" :disabled="cloudHistoryLoading"
+            title="Muat Ulang">🔄</button>
+          <button @click="closeCloudHistory()" class="modal-close">×</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <!-- Tab navigasi -->
+        <div class="flex gap-2 mb-4 flex-wrap">
+          <button class="btn small" :class="cloudActiveTab === 'greenhouse' ? 'primary' : 'ghost'"
+            @click="cloudActiveTab='greenhouse'; fetchCloudData()">Greenhouse</button>
+          <button class="btn small" :class="cloudActiveTab === 'sensors' ? 'primary' : 'ghost'"
+            @click="cloudActiveTab='sensors'; fetchCloudData()">Sensor</button>
+          <button class="btn small" :class="cloudActiveTab === 'actuators' ? 'primary' : 'ghost'"
+            @click="cloudActiveTab='actuators'; fetchCloudData()">Aktuator</button>
+          <button class="btn small" :class="cloudActiveTab === 'summary' ? 'primary' : 'ghost'"
+            @click="cloudActiveTab='summary'; fetchCloudData()">Ringkasan</button>
+        </div>
+        <!-- Rentang waktu (hanya untuk greenhouse) -->
+        <div class="flex gap-2 mb-4 flex-wrap" x-show="cloudActiveTab === 'greenhouse'">
+          <button class="btn small" :class="cloudDateRange === '1h' ? 'primary' : 'ghost'"
+            @click="cloudDateRange='1h'; fetchCloudData()">1 Jam</button>
+          <button class="btn small" :class="cloudDateRange === '6h' ? 'primary' : 'ghost'"
+            @click="cloudDateRange='6h'; fetchCloudData()">6 Jam</button>
+          <button class="btn small" :class="cloudDateRange === '24h' ? 'primary' : 'ghost'"
+            @click="cloudDateRange='24h'; fetchCloudData()">24 Jam</button>
+          <button class="btn small" :class="cloudDateRange === '7d' ? 'primary' : 'ghost'"
+            @click="cloudDateRange='7d'; fetchCloudData()">7 Hari</button>
+          <button class="btn small" :class="cloudDateRange === '30d' ? 'primary' : 'ghost'"
+            @click="cloudDateRange='30d'; fetchCloudData()">30 Hari</button>
+        </div>
+
+        <!-- Loading -->
+        <div class="text-center py-8" x-show="cloudHistoryLoading">
+          <span class="text-gray-400">Memuat data...</span>
+        </div>
+
+        <!-- Error -->
+        <div class="text-center py-4" x-show="!cloudHistoryLoading && cloudHistoryError">
+          <p class="text-red-400 text-sm">⚠️ <span x-text="cloudHistoryError"></span></p>
+          <p class="text-xs text-gray-500 mt-2">Pastikan alamat Cloud Backend sudah benar di Pengaturan → Koneksi.</p>
+        </div>
+
+        <!-- Greenhouse data -->
+        <div x-show="!cloudHistoryLoading && !cloudHistoryError && cloudActiveTab === 'greenhouse'">
+          <p class="text-xs text-gray-500 mb-2" x-text="cloudDataCount + ' data'"></p>
+          <div class="space-y-2 max-h-96 overflow-y-auto">
+            <template x-for="(row, i) in cloudHistory" :key="i">
+              <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30] text-xs">
+                <div class="flex justify-between text-gray-400 mb-1">
+                  <span x-text="formatCloudTime(row.recorded_at)"></span>
+                </div>
+                <div class="grid grid-cols-3 gap-2">
+                  <div>
+                    <span class="text-gray-500">Suhu</span>
+                    <span class="block font-bold" x-text="formatCloudValue(row.temperature) + ' °C'"></span>
+                  </div>
+                  <div>
+                    <span class="text-gray-500">Kelembaban</span>
+                    <span class="block font-bold" x-text="formatCloudValue(row.humidity) + ' %'"></span>
+                  </div>
+                  <div>
+                    <span class="text-gray-500">Soil</span>
+                    <span class="block font-bold" x-text="formatCloudValue(row.moisture) + ' %'"></span>
+                  </div>
+                  <div>
+                    <span class="text-gray-500">Pompa</span>
+                    <span class="block font-bold" x-text="cloudBool(row.water_on)"></span>
+                  </div>
+                  <div>
+                    <span class="text-gray-500">Blower</span>
+                    <span class="block font-bold" x-text="cloudBool(row.blower_on)"></span>
+                  </div>
+                  <div>
+                    <span class="text-gray-500">Humidifier</span>
+                    <span class="block font-bold" x-text="cloudBool(row.humidifier_on)"></span>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <p class="text-center text-gray-500 py-4" x-show="cloudHistory.length === 0">Belum ada data.</p>
+          </div>
+        </div>
+
+        <!-- Sensor latest -->
+        <div x-show="!cloudHistoryLoading && !cloudHistoryError && cloudActiveTab === 'sensors'">
+          <div class="space-y-2 max-h-96 overflow-y-auto">
+            <template x-for="(s, i) in cloudHistory" :key="i">
+              <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30] text-xs">
+                <div class="flex justify-between">
+                  <span class="font-bold" x-text="s.label || ('Node ' + s.node_id + ':' + s.child_id)"></span>
+                  <span class="text-gray-400" x-text="formatCloudTime(s.recorded_at)"></span>
+                </div>
+                <div class="mt-1 grid grid-cols-2 gap-1">
+                  <span>Nilai: <span class="font-bold" x-text="formatCloudValue(s.value)"></span></span>
+                  <span>Raw: <span x-text="formatCloudValue(s.raw_value)"></span></span>
+                  <span x-show="s.battery !== null">Baterai: <span x-text="s.battery + '%'"></span></span>
+                </div>
+              </div>
+            </template>
+            <p class="text-center text-gray-500 py-4" x-show="cloudHistory.length === 0">Belum ada data sensor.</p>
+          </div>
+        </div>
+
+        <!-- Actuator latest -->
+        <div x-show="!cloudHistoryLoading && !cloudHistoryError && cloudActiveTab === 'actuators'">
+          <div class="space-y-2 max-h-96 overflow-y-auto">
+            <template x-for="(a, i) in cloudHistory" :key="i">
+              <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30] text-xs">
+                <div class="flex justify-between">
+                  <span class="font-bold" x-text="a.label || ('Aktuator ' + a.actuator_index)"></span>
+                  <span class="text-gray-400" x-text="formatCloudTime(a.recorded_at)"></span>
+                </div>
+                <div class="mt-1 grid grid-cols-3 gap-1">
+                  <span>Aktif: <span class="font-bold" :class="a.active ? 'text-green-400' : 'text-gray-400'"
+                    x-text="cloudBool(a.active)"></span></span>
+                  <span>Online: <span x-text="cloudBool(a.online)"></span></span>
+                </div>
+              </div>
+            </template>
+            <p class="text-center text-gray-500 py-4" x-show="cloudHistory.length === 0">Belum ada data aktuator.</p>
+          </div>
+        </div>
+
+        <!-- Summary -->
+        <div x-show="!cloudHistoryLoading && !cloudHistoryError && cloudActiveTab === 'summary'">
+          <div class="space-y-4" x-show="cloudHistory">
+            <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30]">
+              <h4 class="text-sm font-bold mb-2">📊 Status</h4>
+              <div class="text-xs grid grid-cols-2 gap-1">
+                <span>State: <span class="font-bold" x-text="cloudHistory.status?.state || '-'"></span></span>
+                <span>IP: <span x-text="cloudHistory.status?.ip || '-'"></span></span>
+                <span>Node: <span x-text="cloudHistory.status?.node_count || '-'"></span></span>
+                <span>Task: <span x-text="cloudHistory.status?.task_count || '-'"></span></span>
+              </div>
+            </div>
+            <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30]">
+              <h4 class="text-sm font-bold mb-2">🌡️ Greenhouse</h4>
+              <template x-if="cloudHistory.greenhouse">
+                <div class="text-xs grid grid-cols-3 gap-1">
+                  <span>Suhu: <span class="font-bold" x-text="formatCloudValue(cloudHistory.greenhouse.temperature) + ' °C'"></span></span>
+                  <span>Hum: <span class="font-bold" x-text="formatCloudValue(cloudHistory.greenhouse.humidity) + ' %'"></span></span>
+                  <span>Soil: <span class="font-bold" x-text="formatCloudValue(cloudHistory.greenhouse.moisture) + ' %'"></span></span>
+                  <span>Pompa: <span x-text="cloudBool(cloudHistory.greenhouse.water_on)"></span></span>
+                  <span>Blower: <span x-text="cloudBool(cloudHistory.greenhouse.blower_on)"></span></span>
+                  <span>Humid: <span x-text="cloudBool(cloudHistory.greenhouse.humidifier_on)"></span></span>
+                </div>
+              </template>
+              <p class="text-xs text-gray-500" x-show="!cloudHistory.greenhouse">Belum ada data greenhouse.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button @click="closeCloudHistory()" class="btn ghost">Tutup</button>
       </div>
     </div>
   </div>
