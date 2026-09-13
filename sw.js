@@ -1,14 +1,13 @@
-const CACHE_NAME = 'karjoagro-ui-v5';
+const CACHE_NAME = 'karjoagro-ui-v6';
+// HANYA file yang benar-benar ada di hasil build (dist/) maupun di root repo.
+// File yang tidak ada membuat cache.addAll() gagal → service worker tidak pernah
+// terpasang. Aset ber-hash (CSS/icon/manifest) masuk cache saat runtime.
 const PRECACHE_URLS = [
   './',
   './index.html',
-  './style.css',
-  './greenhouse.css',
   './app.js',
   './alpine.min.js',
   './mqtt.min.js',
-  './manifest.webmanifest',
-  './icon.svg',
   './offline.html',
 ];
 

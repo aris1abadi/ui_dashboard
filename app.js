@@ -101,7 +101,16 @@ function parseStatusJson(muatan) {
     allowTaskDelete: status.allowTaskDelete !== false,
     loraChannel: toNumber(status.loraChannel ?? status.channel ?? 4),
     loraChannelStored: toBool(status.loraChannelStored),
-    loraDefaultChannel: toNumber(status.loraDefaultChannel ?? 4)
+    loraDefaultChannel: toNumber(status.loraDefaultChannel ?? 4),
+    // Sumber daya: baterai LiFePO4 atau power supply
+    power: {
+      onBattery: toBool(status.power?.onBattery),
+      source: status.power?.source || '',
+      voltage: toNumber(status.power?.voltage, null),
+      percent: toNumber(status.power?.percent, null),
+      low: toBool(status.power?.low),
+      adc: toNumber(status.power?.adc, null)
+    }
   };
 }
 function parseSensorsJson(muatan) {
@@ -489,6 +498,40 @@ function app() {
       if (this.mode === 'local') return this.network?.apMode ? '◐' : '◔';
       if (this.mode === 'mqtt') return '●';
       return '◌';
+    },
+    // Status sumber daya: baterai LiFePO4 atau power supply (×)
+    get powerStatus() {
+      const p = this.network?.power;
+      const v = Number(p?.voltage);
+      if (!p || !Number.isFinite(v)) {
+        return { icon: '🔌', text: '--', variant: 'badge-warn', title: 'Status daya belum tersedia' };
+      }
+      const pctRaw = Number(p.percent);
+      const pct = Number.isFinite(pctRaw) ? Math.round(pctRaw) : null;
+      const pctText = pct === null ? '--' : pct + '%';
+      if (!p.onBattery) {
+        return {
+          icon: '🔌',
+          text: 'PSU',
+          variant: 'badge-info',
+          title: `Sumber daya: POWER SUPPLY (Vbat ${v.toFixed(2)} V)`
+        };
+      }
+      const text = pct === null ? `${v.toFixed(2)} V` : `${v.toFixed(2)} V • ${pct}%`;
+      if (p.low) {
+        return {
+          icon: '🪫',
+          text,
+          variant: 'badge-danger',
+          title: `Baterai LiFePO4 LEMAH: ${v.toFixed(2)} V (${pctText})`
+        };
+      }
+      return {
+        icon: '🔋',
+        text,
+        variant: 'badge-success',
+        title: `Baterai LiFePO4: ${v.toFixed(2)} V (${pctText})`
+      };
     },
     get filteredLogs() { if (this.logFilter === 'all') return this.logs; const map = { sensor: 0, button: 1, status: 3 }; if (this.logFilter === 'system') return this.logs.filter(e => e.type !== 0); return this.logs.filter(e => e.type === map[this.logFilter]); },
     get paginatedFilteredLogs() {
