@@ -102,6 +102,9 @@ function parseStatusJson(muatan) {
     loraChannel: toNumber(status.loraChannel ?? status.channel ?? 4),
     loraChannelStored: toBool(status.loraChannelStored),
     loraDefaultChannel: toNumber(status.loraDefaultChannel ?? 4),
+    // Identitas firmware (dikirim sejak firmware v1.0.0)
+    firmwareName: status.firmwareName || '',
+    firmwareVersion: status.firmwareVersion || '',
     // Sumber daya: baterai LiFePO4 atau power supply
     power: {
       onBattery: toBool(status.power?.onBattery),
@@ -491,6 +494,18 @@ function app() {
         ? { text: `${uiId} • ${label}`, variant: 'badge-success' }
         : { text: `${uiId} • ${label}`, variant: 'badge-warn' };
       return { text: `${uiId} • ${label}`, variant: 'badge-warn' }; 
+    },
+    get headerStatusTitle() {
+      const base = this.headerStatus.text;
+      const version = `${this.network?.firmwareVersion || ''}`.trim();
+      return version ? `${base} • ${this.firmwareLabel}` : base;
+    },
+    get firmwareLabel() {
+      const name = `${this.network?.firmwareName || ''}`.trim();
+      const version = `${this.network?.firmwareVersion || ''}`.trim();
+      if (!name && !version) return '-';
+      const shown = name || 'Firmware';
+      return version ? `${shown} v${version}` : shown;
     },
     getHeaderStatusIcon() {
       if (this.mode === 'detecting') return '◌';

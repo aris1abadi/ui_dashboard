@@ -270,7 +270,7 @@
     <header class="top-bar">
       <div>
         <p class="eyebrow">karjoAgro kontrol</p>
-        <div class="status-inline mt-1" :class="headerStatus.variant" :title="headerStatus.text">
+        <div class="status-inline mt-1" :class="headerStatus.variant" :title="headerStatusTitle">
           <span class="status-inline-icon" x-text="getHeaderStatusIcon()"></span>
           <span class="status-inline-text" x-text="headerStatus.text"></span>
         </div>
@@ -462,6 +462,10 @@
           <div class="item">
             <div class="title">ID Kontrol</div>
             <div class="meta" x-text="network.kontrolId || config.mqtt.kontrolId"></div>
+          </div>
+          <div class="item">
+            <div class="title">Firmware</div>
+            <div class="meta" x-text="firmwareLabel"></div>
           </div>
           <div class="item" x-show="showLoRaChannelUI">
             <div>
@@ -1482,7 +1486,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260507c"></script>
+  <script src="app.js?v=20260914a"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
