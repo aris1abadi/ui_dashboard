@@ -130,8 +130,10 @@ function parseSensorsJson(muatan) {
     moistureWetCalibration: item.moistureWetCalibration === '' || item.moistureWetCalibration === undefined ? 490 : toNumber(item.moistureWetCalibration, 490),
     distanceLowCalibration: item.distanceLowCalibration === '' || item.distanceLowCalibration === undefined ? null : toNumber(item.distanceLowCalibration, null),
     distanceHighCalibration: item.distanceHighCalibration === '' || item.distanceHighCalibration === undefined ? null : toNumber(item.distanceHighCalibration, null),
+    distanceZeroCalibration: item.distanceZeroCalibration === '' || item.distanceZeroCalibration === undefined ? null : toNumber(item.distanceZeroCalibration, null),
     fuelLowCalibration: item.fuelLowCalibration === '' || item.fuelLowCalibration === undefined ? null : toNumber(item.fuelLowCalibration, null),
     fuelHighCalibration: item.fuelHighCalibration === '' || item.fuelHighCalibration === undefined ? null : toNumber(item.fuelHighCalibration, null),
+    fuelZeroCalibration: item.fuelZeroCalibration === '' || item.fuelZeroCalibration === undefined ? null : toNumber(item.fuelZeroCalibration, null),
     lastSeenMs: toNumber(item.lastSeenMs ?? item.lastSeen ?? 0),
     lastSeenAgeMs: toNumber(item.lastSeenAgeMs ?? item.ageMs ?? 0),
     battery: item.battery === null || item.battery === undefined ? null : toNumber(item.battery, null),
@@ -311,12 +313,16 @@ function app() {
     moistureCalibration: { nodeId: 0, childId: 0, label: '', rawValue: null, dryValue: 800, wetValue: 490, currentValue: null, error: '', intervalSec: 60 },
     showDistanceCalibrationModal: false,
     distanceCalibrationPollTimer: null,
-    distanceCalibration: { nodeId: 0, childId: 0, label: '', rawValue: null, lowValue: -10, highValue: 15, currentValue: null, error: '', intervalSec: 60 },
+    distanceCalibration: { nodeId: 0, childId: 0, label: '', rawValue: null, zeroValue: 0, savedZero: 0, currentValue: null, error: '', intervalSec: 60 },
     showFuelCalibrationModal: false,
     showSensorIntervalModal: false,
+    // Info node terhubung (baterai, timer/interval, kalibrasi saat ini)
+    showNodeInfoModal: false,
+    nodeInfo: { nodeId: null, sensors: [], battery: null, batteryAgeMs: null, sleepIntervalMs: null, sleepAgeMs: null, lastSeenAgeMs: null },
+    nodeInfoExpandedSensor: null,
     sensorInterval: { nodeId: 0, childId: 0, label: '', intervalSec: 60 },
     fuelCalibrationPollTimer: null,
-    fuelCalibration: { nodeId: 0, childId: 0, label: '', rawValue: null, lowValue: 190, highValue: 0, currentValue: null, error: '', intervalSec: 60 },
+    fuelCalibration: { nodeId: 0, childId: 0, label: '', rawValue: null, zeroValue: 0, savedZero: 0, currentValue: null, error: '', intervalSec: 60 },
     timeForm: { date: '', time: '' },
     wifiSetup: { ssid: '', pass: '', auth: '', file: null, firmwareName: '' },
     loraChannelSetup: { value: 4, defaultValue: 4, stored: false },
@@ -344,10 +350,10 @@ function app() {
       return normalizeKontrolId(this.config?.uiId || this.login?.username || '');
     },
     get loginConnectionStatus() {
-      if (this.mode === 'mqtt' && this.connected) return { text: 'MQTT terhubung, siap login.', variant: 'badge-success' };
-      if (this.mode === 'detecting') return { text: 'Menyambungkan ke MQTT...', variant: 'badge-warn' };
+      if (this.mode === 'mqtt' && this.connected) return { text: 'Terhubung ke server online, siap masuk.', variant: 'badge-success' };
+      if (this.mode === 'detecting') return { text: 'Menyambungkan ke server online...', variant: 'badge-warn' };
       if (this.connectionPreference === 'local') return { text: 'Mode lokal aktif.', variant: 'badge-info' };
-      return { text: 'MQTT belum terhubung.', variant: 'badge-danger' };
+      return { text: 'Belum terhubung ke server online.', variant: 'badge-danger' };
     },
     get loginConnectionBadgeText() {
       if (this.mode === 'mqtt' && this.connected) return 'ONLINE';
@@ -416,15 +422,15 @@ function app() {
         actuator: 'Aktuator',
         schedule: 'Jadwal Otomasi',
         threshold: 'Ambang Threshold',
-        calibration: 'Kalibrasi Moisture',
-        calibrationDistance: 'Kalibrasi Distance',
-        calibrationFuel: 'Kalibrasi Fuel Height',
+        calibration: 'Kalibrasi Kelembapan Tanah',
+        calibrationDistance: 'Kalibrasi Ketinggian Air',
+        calibrationFuel: 'Kalibrasi Tinggi Cairan',
         connection: 'Status Koneksi',
         task: 'Task',
         log: 'Log Aktivitas',
         node: 'Node',
         nodeSensor: 'Node Sensor',
-        loraChannel: 'Channel LoRa',
+        loraChannel: 'Saluran Radio',
         value: 'Pembacaan',
         active: 'Aktif'
       };
@@ -1080,7 +1086,7 @@ function app() {
     sendMqttAdminPasswordChange(username, currentPassword, newPassword) {
       return new Promise((resolve, reject) => {
         if (!this.mqttClient?.connected) {
-          reject(new Error('MQTT belum terhubung.'));
+          reject(new Error('Koneksi online belum tersambung.'));
           return;
         }
         this.clearAuthPasswordPending();
@@ -1099,8 +1105,8 @@ function app() {
       this.mqttConnectFailureHandled = true;
       const authError = isMqttAuthError(error);
       const message = authError
-        ? 'Credential MQTT ditolak. Periksa username dan password.'
-        : 'MQTT gagal tersambung. Periksa alamat broker atau jaringan.';
+        ? 'Akun online ditolak. Periksa nama pengguna dan sandi.'
+        : 'Gagal tersambung ke server online. Periksa alamat server atau jaringan.';
       this.clearMqttConnectTimer();
       this.clearLoginPending();
       this.clearAuthPasswordPending();
@@ -1114,7 +1120,7 @@ function app() {
       this.mqttPendingConnectError = null;
       this.showToast(message, 'error');
       if (authError) {
-        this.mqttCredentialForm.error = 'Credential MQTT tidak valid.';
+        this.mqttCredentialForm.error = 'Data akun online tidak valid.';
       }
     },
     submitMqttCredentialModal() {
@@ -1122,7 +1128,7 @@ function app() {
         const username = `${this.mqttCredentialForm.username || ''}`.trim();
         const password = `${this.mqttCredentialForm.password || ''}`.trim();
         if (!username || !password) {
-          this.mqttCredentialForm.error = 'Username dan password MQTT wajib diisi.';
+          this.mqttCredentialForm.error = 'Nama pengguna dan sandi wajib diisi.';
           return;
         }
         this.config.mqtt.username = username;
@@ -1134,7 +1140,7 @@ function app() {
         this.mqttPendingConnectError = null;
         this.showMqttCredentialModal = false;
         this.closeMqttCredentialModal({ keepPendingConnect: true });
-        this.showToast('Credential MQTT disimpan. Menyambungkan...', 'info');
+        this.showToast('Akun online disimpan. Menyambungkan...', 'info');
         setTimeout(() => {
           if (this.mqttCredentialPendingConnect) {
             this.mqttCredentialPendingConnect = false;
@@ -1145,8 +1151,8 @@ function app() {
         this.mqttCredentialPendingConnect = false;
         this.connected = false;
         this.mode = 'offline';
-        this.mqttCredentialForm.error = 'Gagal menyimpan credential MQTT.';
-        this.showToast('Gagal menyimpan credential MQTT.', 'error');
+        this.mqttCredentialForm.error = 'Gagal menyimpan akun online.';
+        this.showToast('Gagal menyimpan akun online.', 'error');
       }
     },
     setupPwaHooks() {
@@ -1256,7 +1262,7 @@ function app() {
           throw new Error('UI tidak bisa terhubung ke kontroller.');
         }
         const result = await this.sendMqttLogin(username, password);
-        if (!result?.ok) throw new Error(result?.error || 'Login MQTT ditolak.');
+        if (!result?.ok) throw new Error(result?.error || 'Login online ditolak.');
         this.loginRole = `${result?.role || ''}`.trim() || 'guest';
         if (this.login.kontrolId && this.login.kontrolId !== this.config.mqtt.kontrolId) {
           this.applyKontrolId(this.login.kontrolId, { skipLogout: true });
@@ -1937,7 +1943,7 @@ function app() {
       if (!this.showDistanceCalibrationModal) return;
       const sensor = this.getDistanceCalibrationSensor();
       if (!sensor) return;
-      const rawValue = pickRawAdcValue(
+      const rawValue = this.pickRawDistanceValue(
         sensor.rawValue,
         sensor.lastSensorRawValue,
         this.distanceCalibration.rawValue,
@@ -1948,12 +1954,24 @@ function app() {
       }
       this.distanceCalibration.currentValue = sensor.value;
       if (sensor.label) this.distanceCalibration.label = sensor.label;
-      const lowCalibration = Number(sensor.distanceLowCalibration);
-      const highCalibration = Number(sensor.distanceHighCalibration);
-      if (Number.isFinite(lowCalibration) && Number.isFinite(highCalibration) && !(lowCalibration === 0 && highCalibration === 0)) {
-        this.distanceCalibration.lowValue = lowCalibration;
-        this.distanceCalibration.highValue = highCalibration;
+      // Kalibrasi titik nol (cm jarak mentah saat level 0 cm).
+      const zeroCalibration = Number(sensor.distanceZeroCalibration);
+      if (Number.isFinite(zeroCalibration) && zeroCalibration > 0) {
+        this.distanceCalibration.savedZero = zeroCalibration;
+        if (!this.distanceCalibration.zeroTouched) this.distanceCalibration.zeroValue = zeroCalibration;
+      } else {
+        this.distanceCalibration.savedZero = 0;
       }
+    },
+    // Jarak mentah (cm) TIDAK dibulatkan: pickRawAdcValue membulatkan ke integer
+    // (cocok untuk ADC 0-4095) sedangkan kalibrasi titik nol butuh ketelitian cm.
+    pickRawDistanceValue(...values) {
+      for (const value of values) {
+        if (!isValidRawAdcValue(value)) continue;
+        const numeric = Number(value);
+        if (Number.isFinite(numeric)) return numeric;
+      }
+      return null;
     },
     async refreshDistanceCalibrationData() {
       if (!this.showDistanceCalibrationModal) return false;
@@ -2014,29 +2032,146 @@ function app() {
       this.showToast(`Interval node ${s.nodeId}:${s.childId} disimpan.`, 'success');
       this.closeSensorInterval();
     },
+
+    // ── Info node terhubung (baterai, timer/interval, kalibrasi saat ini) ──
+    // Dashboard menerima data per-sensor, sedangkan baterai & interval tidur
+    // milik NODE. Semua child pada node yang sama membawa nilai node yang sama,
+    // jadi informasi node dirangkum dari daftar sensor (dikelompokkan nodeId).
+    numOrNull(value) {
+      if (value === null || value === undefined || value === '') return null;
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    },
+    get nodeSummaries() {
+      const map = new Map();
+      (this.sensors || []).forEach(sensor => {
+        const nodeId = this.numOrNull(sensor?.nodeId);
+        if (nodeId === null) return;
+        let node = map.get(nodeId);
+        if (!node) {
+          node = { nodeId, sensors: [], battery: null, batteryAgeMs: null, sleepIntervalMs: null, sleepAgeMs: null, lastSeenAgeMs: null };
+          map.set(nodeId, node);
+        }
+        node.sensors.push(sensor);
+        const battery = this.numOrNull(sensor.battery);
+        if (node.battery === null && battery !== null) node.battery = battery;
+        const batteryAge = this.numOrNull(sensor.batteryAgeMs);
+        if (node.batteryAgeMs === null && batteryAge !== null) node.batteryAgeMs = batteryAge;
+        const sleepMs = this.numOrNull(sensor.sleepIntervalMs);
+        if (node.sleepIntervalMs === null && sleepMs !== null) node.sleepIntervalMs = sleepMs;
+        const sleepAge = this.numOrNull(sensor.sleepAgeMs);
+        if (node.sleepAgeMs === null && sleepAge !== null) node.sleepAgeMs = sleepAge;
+        const seenAge = this.numOrNull(sensor.lastSeenAgeMs);
+        if (seenAge !== null && (node.lastSeenAgeMs === null || seenAge < node.lastSeenAgeMs)) node.lastSeenAgeMs = seenAge;
+      });
+      return [...map.values()].sort((a, b) => a.nodeId - b.nodeId);
+    },
+    formatAgeText(ms) {
+      const value = this.numOrNull(ms);
+      if (value === null) return '-';
+      const sec = Math.max(0, Math.floor(value / 1000));
+      if (sec < 60) return `${sec} dtk lalu`;
+      if (sec < 3600) return `${Math.floor(sec / 60)} mnt lalu`;
+      if (sec < 86400) return `${Math.floor(sec / 3600)} jam lalu`;
+      return `${Math.floor(sec / 86400)} hari lalu`;
+    },
+    nodeBatteryText(node) {
+      const level = this.numOrNull(node?.battery);
+      return level === null ? '--' : `${Math.round(level)}%`;
+    },
+    nodeBatteryBadge(node) {
+      const level = this.numOrNull(node?.battery);
+      if (level === null) return 'badge-muted';
+      if (level <= 20) return 'badge-danger';
+      if (level <= 50) return 'badge-warn';
+      return 'badge-success';
+    },
+    nodeTimerText(node) {
+      const ms = this.numOrNull(node?.sleepIntervalMs);
+      if (ms === null || ms <= 0) return '--';
+      const menit = Math.round(ms / 60000);
+      return menit >= 1 ? `${menit} mnt` : `${Math.round(ms / 1000)} dtk`;
+    },
+    // Status kalibrasi yang sedang dipakai sensor (tanpa istilah teknis).
+    // URUTAN PENTING: sensor tinggi cairan juga mengirim V_DISTANCE, jadi dicek
+    // lebih dulu (deteksinya berbasis nama) supaya tidak terbaca sebagai jarak.
+    sensorCalibrationText(sensor) {
+      if (!sensor) return '';
+      if (this.isMoistureSensor(sensor)) {
+        const dry = this.numOrNull(sensor.moistureDryCalibration);
+        const wet = this.numOrNull(sensor.moistureWetCalibration);
+        return dry !== null && wet !== null ? 'sudah dikalibrasi' : 'belum dikalibrasi';
+      }
+      if (this.isFuelHeightSensor(sensor)) {
+        const zero = this.numOrNull(sensor.fuelZeroCalibration);
+        return zero !== null && zero > 0 ? 'sudah dikalibrasi' : 'belum dikalibrasi';
+      }
+      if (this.isDistanceSensor(sensor)) {
+        const zero = this.numOrNull(sensor.distanceZeroCalibration);
+        return zero !== null && zero > 0 ? 'sudah dikalibrasi' : 'belum dikalibrasi';
+      }
+      return '';
+    },
+    // Baris ringkas di daftar sensor: baterai • timer • kalibrasi.
+    sensorInfoLine(sensor) {
+      if (!sensor || this.numOrNull(sensor.nodeId) === null || Number(sensor.nodeId) === 0) return '';
+      const parts = [];
+      const battery = this.numOrNull(sensor.battery);
+      if (battery !== null) parts.push(`🔋 ${Math.round(battery)}%`);
+      const sleepMs = this.numOrNull(sensor.sleepIntervalMs);
+      if (sleepMs !== null && sleepMs > 0) parts.push(`⏱️ ${this.nodeTimerText({ sleepIntervalMs: sleepMs })}`);
+      const calib = this.sensorCalibrationText(sensor);
+      if (calib) parts.push(calib);
+      return parts.join(' • ');
+    },
+    openNodeInfo(node) {
+      const nodeId = this.numOrNull(node?.nodeId);
+      if (nodeId === null) return;
+      this.nodeInfo = {
+        nodeId,
+        sensors: [...(node.sensors || [])],
+        battery: node.battery ?? null,
+        batteryAgeMs: node.batteryAgeMs ?? null,
+        sleepIntervalMs: node.sleepIntervalMs ?? null,
+        sleepAgeMs: node.sleepAgeMs ?? null,
+        lastSeenAgeMs: node.lastSeenAgeMs ?? null
+      };
+      this.showNodeInfoModal = true;
+    },
+    closeNodeInfo() {
+      this.showNodeInfoModal = false;
+    },
+    // Ketuk sensor di modal info node → buka modal kalibrasi/interval yang sesuai.
+    // Fuel diperiksa lebih dulu karena sensor fuel juga V_DISTANCE.
+    openNodeInfoSensor(sensor) {
+      if (!sensor) return;
+      this.closeNodeInfo();
+      if (this.isMoistureSensor(sensor)) this.openMoistureCalibration(sensor);
+      else if (this.isFuelHeightSensor(sensor)) this.openFuelCalibration(sensor);
+      else if (this.isDistanceSensor(sensor)) this.openDistanceCalibration(sensor);
+      else this.openSensorInterval(sensor);
+    },
+
     openDistanceCalibration(sensor) {
       if (!this.isDistanceSensor(sensor)) return;
-      const rawValue = pickRawAdcValue(
+      const rawValue = this.pickRawDistanceValue(
         sensor.rawValue,
         sensor.lastSensorRawValue,
         this.distanceCalibration?.rawValue,
         this.estimateDistanceRawFromValue(sensor)
       );
+      const zeroCalibration = Number(sensor.distanceZeroCalibration);
+      const savedZero = Number.isFinite(zeroCalibration) && zeroCalibration > 0 ? zeroCalibration : 0;
       this.distanceCalibration = {
         nodeId: sensor.nodeId,
         childId: sensor.childId,
         label: sensor.label || `Node ${sensor.nodeId}:${sensor.childId}`,
         rawValue,
-        lowValue: (() => {
-          const low = Number(sensor.distanceLowCalibration);
-          const high = Number(sensor.distanceHighCalibration);
-          return Number.isFinite(low) && Number.isFinite(high) && !(low === 0 && high === 0) ? low : -10;
-        })(),
-        highValue: (() => {
-          const low = Number(sensor.distanceLowCalibration);
-          const high = Number(sensor.distanceHighCalibration);
-          return Number.isFinite(low) && Number.isFinite(high) && !(low === 0 && high === 0) ? high : 15;
-        })(),
+        // zeroValue  : yang akan disimpan (bisa diubah sebelum simpan)
+        // savedZero  : titik 0 yang sedang dipakai kontroler
+        zeroValue: savedZero,
+        savedZero,
+        zeroTouched: false,
         currentValue: sensor.value,
         error: '',
         intervalSec: this.initCalibrationInterval(sensor)
@@ -2048,44 +2183,55 @@ function app() {
       this.clearDistanceCalibrationPolling();
       this.showDistanceCalibrationModal = false;
     },
-    setDistanceCalibrationPoint(kind) {
-      const nilaiMentah = this.distanceCalibration?.rawValue;
-      if (!Number.isFinite(Number(nilaiMentah))) {
-        this.showToast('Nilai raw sensor belum tersedia.', 'error');
+    // "Set Titik 0": pakai JARAK MENTAH yang dibaca SEKARANG sebagai titik 0
+    // (permukaan acuan). Sama seperti tombol "Set Titik 0" di karjoAgroSensorHub.
+    setDistanceZeroPoint() {
+      const nilaiMentah = Number(this.distanceCalibration?.rawValue);
+      if (!Number.isFinite(nilaiMentah)) {
+        this.showToast('Jarak mentah sensor belum tersedia.', 'error');
         return;
       }
-      if (kind === 'low') {
-        this.distanceCalibration.lowValue = Number(nilaiMentah);
-      } else if (kind === 'high') {
-        this.distanceCalibration.highValue = Number(nilaiMentah);
-      }
+      this.distanceCalibration.zeroValue = nilaiMentah;
+      this.distanceCalibration.zeroTouched = true;
+      this.showToast(`Titik 0 diset: ${nilaiMentah.toFixed(1)} cm — tekan Simpan Kalibrasi.`);
     },
     resetDistanceCalibration() {
-      this.distanceCalibration.lowValue = -10;
-      this.distanceCalibration.highValue = 15;
+      this.distanceCalibration.zeroValue = 0;
+      this.distanceCalibration.zeroTouched = true;
+      this.showToast('Titik 0 dihapus — tekan Simpan Kalibrasi.');
+    },
+    // Pratinjau level yang akan dilaporkan: level = titik 0 - jarak sekarang.
+    // Titik 0 = PERMUKAAN TANAH ⇒ air di bawah permukaan = minus, di atas = plus.
+    get distanceLevelPreview() {
+      const zero = Number(this.distanceCalibration?.zeroValue);
+      const raw = Number(this.distanceCalibration?.rawValue);
+      if (!Number.isFinite(zero) || zero <= 0 || !Number.isFinite(raw)) return null;
+      return Math.max(-15, Math.min(15, zero - raw));
+    },
+    get distanceLevelDirectionText() {
+      const level = this.distanceLevelPreview;
+      if (level === null) return '';
+      if (level > 0.05) return 'air di atas permukaan tanah';
+      if (level < -0.05) return 'air di bawah permukaan tanah';
+      return 'air tepat di permukaan tanah';
     },
     async saveDistanceCalibration() {
       const payload = this.distanceCalibration || {};
       const nodeId = toNumber(payload.nodeId, 0);
       const childId = toNumber(payload.childId, -1);
-      const lowValue = Number(payload.lowValue);
-      const highValue = Number(payload.highValue);
-      if (!nodeId || childId < 0 || !Number.isFinite(lowValue) || !Number.isFinite(highValue)) {
+      const zeroValue = Number(payload.zeroValue);
+      if (!nodeId || childId < 0 || !Number.isFinite(zeroValue) || zeroValue < 0) {
         this.showToast('Data kalibrasi belum lengkap.', 'error');
         return;
       }
-      if (lowValue === highValue) {
-        this.showToast('Nilai kalibrasi tidak boleh sama.', 'error');
-        return;
-      }
       if (!this.beginAction()) return;
-      const perintah = { cmd: 'setDistanceCalibration', nodeId, childId, low: lowValue, high: highValue };
+      const perintah = { cmd: 'setDistanceZero', nodeId, childId, zero: zeroValue };
       try {
         if (this.mode === 'local') {
           const res = await this.sendLocalCommand(perintah);
           if (res.ok) {
             await this.refreshLocal();
-            this.showToast('Kalibrasi tersimpan.');
+            this.showToast(zeroValue > 0 ? `Titik 0 disimpan: ${zeroValue.toFixed(1)} cm` : 'Kalibrasi titik 0 dihapus.');
             this.closeDistanceCalibration();
           } else {
             this.showToast(res.error || 'Gagal menyimpan kalibrasi.', 'error');
@@ -2093,7 +2239,7 @@ function app() {
         } else {
           this.publishCommand(perintah);
           setTimeout(() => this.publishCommand('getSensors'), 500);
-          this.showToast('Kalibrasi dikirim ke kontroler.');
+          this.showToast('Kalibrasi titik 0 dikirim ke kontroler.');
           if (nodeId !== 0 && payload.intervalSec) {
             this.publishCommand('setSensorSleep', [nodeId, childId, payload.intervalSec * 60 * 1000]);
           }
@@ -2113,7 +2259,7 @@ function app() {
       if (!this.showFuelCalibrationModal) return;
       const sensor = this.getFuelCalibrationSensor();
       if (!sensor) return;
-      const rawValue = pickRawAdcValue(
+      const rawValue = this.pickRawDistanceValue(
         sensor.rawValue,
         sensor.lastSensorRawValue,
         this.fuelCalibration.rawValue,
@@ -2124,8 +2270,14 @@ function app() {
       }
       this.fuelCalibration.currentValue = sensor.value;
       if (sensor.label) this.fuelCalibration.label = sensor.label;
-      this.fuelCalibration.lowValue = toNumber(sensor.fuelLowCalibration, this.fuelCalibration.lowValue);
-      this.fuelCalibration.highValue = toNumber(sensor.fuelHighCalibration, this.fuelCalibration.highValue);
+      // Kalibrasi titik nol (nilai mentah saat permukaan cairan di titik acuan).
+      const zeroCalibration = Number(sensor.fuelZeroCalibration);
+      if (Number.isFinite(zeroCalibration) && zeroCalibration > 0) {
+        this.fuelCalibration.savedZero = zeroCalibration;
+        if (!this.fuelCalibration.zeroTouched) this.fuelCalibration.zeroValue = zeroCalibration;
+      } else {
+        this.fuelCalibration.savedZero = 0;
+      }
     },
     async refreshFuelCalibrationData() {
       if (!this.showFuelCalibrationModal) return false;
@@ -2168,19 +2320,22 @@ function app() {
     },
     openFuelCalibration(sensor) {
       if (!this.isFuelHeightSensor(sensor)) return;
-      const rawValue = pickRawAdcValue(
+      const rawValue = this.pickRawDistanceValue(
         sensor.rawValue,
         sensor.lastSensorRawValue,
         this.fuelCalibration?.rawValue,
         this.estimateFuelRawFromValue(sensor)
       );
+      const zeroCalibration = Number(sensor.fuelZeroCalibration);
+      const savedZero = Number.isFinite(zeroCalibration) && zeroCalibration > 0 ? zeroCalibration : 0;
       this.fuelCalibration = {
         nodeId: sensor.nodeId,
         childId: sensor.childId,
         label: sensor.label || `Node ${sensor.nodeId}:${sensor.childId}`,
         rawValue,
-        lowValue: toNumber(sensor.fuelLowCalibration, 190),
-        highValue: toNumber(sensor.fuelHighCalibration, 0),
+        zeroValue: savedZero,
+        savedZero,
+        zeroTouched: false,
         currentValue: sensor.value,
         error: '',
         intervalSec: this.initCalibrationInterval(sensor)
@@ -2192,44 +2347,47 @@ function app() {
       this.clearFuelCalibrationPolling();
       this.showFuelCalibrationModal = false;
     },
-    setFuelCalibrationPoint(kind) {
-      const nilaiMentah = this.fuelCalibration?.rawValue;
-      if (!Number.isFinite(Number(nilaiMentah))) {
-        this.showToast('Nilai raw sensor belum tersedia.', 'error');
+    // "Set Titik 0": pakai pembacaan MENTAH sekarang sebagai titik 0
+    // (permukaan acuan, mis. dasar tangki / kondisi kosong).
+    setFuelZeroPoint() {
+      const nilaiMentah = Number(this.fuelCalibration?.rawValue);
+      if (!Number.isFinite(nilaiMentah)) {
+        this.showToast('Pembacaan mentah sensor belum tersedia.', 'error');
         return;
       }
-      if (kind === 'low') {
-        this.fuelCalibration.lowValue = Number(nilaiMentah);
-      } else if (kind === 'high') {
-        this.fuelCalibration.highValue = Number(nilaiMentah);
-      }
+      this.fuelCalibration.zeroValue = nilaiMentah;
+      this.fuelCalibration.zeroTouched = true;
+      this.showToast(`Titik 0 diset: ${nilaiMentah.toFixed(1)} — tekan Simpan Kalibrasi.`);
     },
     resetFuelCalibration() {
-      this.fuelCalibration.lowValue = 190;
-      this.fuelCalibration.highValue = 0;
+      this.fuelCalibration.zeroValue = 0;
+      this.fuelCalibration.zeroTouched = true;
+      this.showToast('Titik 0 dihapus — tekan Simpan Kalibrasi.');
+    },
+    // Pratinjau tinggi cairan: level = pembacaan sekarang - titik 0.
+    get fuelLevelPreview() {
+      const zero = Number(this.fuelCalibration?.zeroValue);
+      const raw = Number(this.fuelCalibration?.rawValue);
+      if (!Number.isFinite(zero) || zero <= 0 || !Number.isFinite(raw)) return null;
+      return Math.max(-190, Math.min(190, raw - zero));
     },
     async saveFuelCalibration() {
       const payload = this.fuelCalibration || {};
       const nodeId = toNumber(payload.nodeId, 0);
       const childId = toNumber(payload.childId, -1);
-      const lowValue = Number(payload.lowValue);
-      const highValue = Number(payload.highValue);
-      if (!nodeId || childId < 0 || !Number.isFinite(lowValue) || !Number.isFinite(highValue)) {
+      const zeroValue = Number(payload.zeroValue);
+      if (!nodeId || childId < 0 || !Number.isFinite(zeroValue) || zeroValue < 0) {
         this.showToast('Data kalibrasi belum lengkap.', 'error');
         return;
       }
-      if (lowValue === highValue) {
-        this.showToast('Nilai kalibrasi tidak boleh sama.', 'error');
-        return;
-      }
       if (!this.beginAction()) return;
-      const perintah = { cmd: 'setFuelHeightCalibration', nodeId, childId, low: lowValue, high: highValue };
+      const perintah = { cmd: 'setFuelZero', nodeId, childId, zero: zeroValue };
       try {
         if (this.mode === 'local') {
           const res = await this.sendLocalCommand(perintah);
           if (res.ok) {
             await this.refreshLocal();
-            this.showToast('Kalibrasi tersimpan.');
+            this.showToast(zeroValue > 0 ? `Titik 0 disimpan: ${zeroValue.toFixed(1)}` : 'Kalibrasi titik 0 dihapus.');
             this.closeFuelCalibration();
           } else {
             this.showToast(res.error || 'Gagal menyimpan kalibrasi.', 'error');
@@ -2237,7 +2395,7 @@ function app() {
         } else {
           this.publishCommand(perintah);
           setTimeout(() => this.publishCommand('getSensors'), 500);
-          this.showToast('Kalibrasi dikirim ke kontroler.');
+          this.showToast('Kalibrasi titik 0 dikirim ke kontroler.');
           if (nodeId !== 0 && payload.intervalSec) {
             this.publishCommand('setSensorSleep', [nodeId, childId, payload.intervalSec * 60 * 1000]);
           }
@@ -2565,7 +2723,7 @@ function app() {
     },
     async requestMqttLogsPage(page, limit, timeoutMs = 20000) {
       if (!this.mqttClient?.connected) {
-        throw new Error('Koneksi MQTT belum tersambung.');
+        throw new Error('Koneksi online belum tersambung.');
       }
       return new Promise((resolve, reject) => {
         const requestKey = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -2648,7 +2806,7 @@ function app() {
       this.logDownload.mode = this.mode;
       try {
         if (this.mode !== 'local' && (this.mode !== 'mqtt' || !this.mqttClient?.connected)) {
-          throw new Error('Unduhan CSV hanya tersedia saat koneksi lokal atau MQTT aktif.');
+          throw new Error('Unduhan CSV hanya tersedia saat koneksi lokal atau online aktif.');
         }
         const limit = 50;
         const requestPage = this.mode === 'local'
@@ -3420,16 +3578,16 @@ function app() {
     },
     async saveLoRaChannel() {
       if (!this.showLoRaChannelUI) {
-        this.showToast('Channel LoRa hanya tersedia untuk kontrol ID KA.', 'error');
+        this.showToast('Saluran radio hanya tersedia untuk kontrol ID KA.', 'error');
         return;
       }
       if (!this.isLocalConnected) {
-        this.showToast('Pengaturan channel LoRa hanya tersedia saat koneksi lokal aktif.', 'error');
+        this.showToast('Pengaturan saluran radio hanya tersedia saat koneksi lokal aktif.', 'error');
         return;
       }
       const channel = Math.round(toNumber(this.loraChannelSetup?.value, NaN));
       if (!Number.isFinite(channel) || channel < LORA_CHANNEL_MIN || channel > LORA_CHANNEL_MAX) {
-        this.showToast(`Channel LoRa harus ${LORA_CHANNEL_MIN} sampai ${LORA_CHANNEL_MAX}.`, 'error');
+        this.showToast(`Saluran radio harus ${LORA_CHANNEL_MIN} sampai ${LORA_CHANNEL_MAX}.`, 'error');
         return;
       }
       if (!this.beginAction()) return;
@@ -3446,13 +3604,13 @@ function app() {
         let parsed = null;
         try { parsed = text ? JSON.parse(text) : null; } catch { parsed = null; }
         if (!res.ok || parsed?.ok === false) {
-          throw new Error(parsed?.error || parsed?.message || text || 'Gagal menyimpan channel LoRa');
+          throw new Error(parsed?.error || parsed?.message || text || 'Gagal menyimpan saluran radio');
         }
         this.showToast(`Channel LoRa disimpan: ${channel}`);
         await this.refreshLocal();
         this.syncLoRaChannelSetupFromNetwork();
       } catch (error) {
-        this.showToast(error?.message || 'Gagal menyimpan channel LoRa.', 'error');
+        this.showToast(error?.message || 'Gagal menyimpan saluran radio.', 'error');
       } finally {
         this.endAction();
       }

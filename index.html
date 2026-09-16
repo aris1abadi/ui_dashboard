@@ -23,8 +23,8 @@
     tabindex="-1">
     <form @submit.prevent="attemptLogin" class="login-card">
       <button type="button" class="login-mqtt-credential-btn"
-        @click="openMqttCredentialModal('Ubah username dan password MQTT, lalu simpan untuk menyambungkan ulang.')"
-        title="Ubah kredensial MQTT" aria-label="Ubah kredensial MQTT">
+        @click="openMqttCredentialModal('Ubah akun online, lalu simpan untuk menyambungkan ulang.')"
+        title="Ubah akun online" aria-label="Ubah akun online">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d="M15.5 7.5a4 4 0 1 1-2.6 7.04l-1.45 1.45H9.5v1.95H7.55v1.95H4.5V16.8l5.96-5.96A4 4 0 0 1 15.5 7.5Zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z" />
         </svg>
@@ -116,23 +116,24 @@
       </div>
       <div class="modal-body p-6 space-y-6">
         <div class="flex flex-col gap-2">
-          <div class="text-lg font-bold text-white" x-text="distanceCalibration.label || 'HCSR04 Distance'"></div>
+          <div class="text-lg font-bold text-white" x-text="distanceCalibration.label || 'Ketinggian Air'"></div>
           <div class="text-sm text-gray-400"
             x-text="`${getUiLabel('nodeSensor')} ${distanceCalibration.nodeId}:${distanceCalibration.childId}`"></div>
-          <p class="text-xs text-gray-500">Titik 0 cm dianggap permukaan tanah. Kalibrasi ini memakai batas -10 cm
-            sampai 15 cm.</p>
+          <p class="text-xs text-gray-500">Setel <b>titik 0</b> saat permukaan air tepat di permukaan tanah:
+            tunggu pembacaan stabil, lalu tekan <b>Set Titik 0</b>. Setelah itu nilai <b>minus</b>
+            berarti air di bawah permukaan tanah dan nilai <b>plus</b> berarti air di atas permukaan tanah.</p>
         </div>
 
         <div class="grid grid-cols-2 gap-4">
           <div class="bg-black/20 p-3 rounded-2xl border border-white/5 min-h-[96px] flex flex-col justify-center">
-            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Pembacaan</p>
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Ketinggian Air</p>
             <div class="flex flex-1 items-center justify-center">
               <p class="text-3xl font-black text-white leading-none text-center"
                 x-text="formatNilaiSensor(distanceCalibration.currentValue, 'cm')"></p>
             </div>
           </div>
           <div class="bg-black/20 p-3 rounded-2xl border border-white/5 min-h-[96px] flex flex-col justify-center">
-            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Raw Sensor</p>
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Nilai Sensor</p>
             <div class="flex flex-1 items-center justify-center">
               <p class="text-3xl font-black text-primary leading-none text-center"
                 x-text="formatNilaiSensor(distanceCalibration.rawValue, 'cm')"></p>
@@ -140,29 +141,40 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-3 mt-5">
-          <button @click="setDistanceCalibrationPoint('low')" class="calibration-action">
-            <span class="calibration-action-label">Nilai -10 cm</span>
-            <span class="calibration-action-value"
-              x-text="formatNilaiSensor(distanceCalibration.lowValue, 'cm')"></span>
-          </button>
-          <button @click="setDistanceCalibrationPoint('high')" class="calibration-action">
-            <span class="calibration-action-label">Nilai +15 cm</span>
-            <span class="calibration-action-value"
-              x-text="formatNilaiSensor(distanceCalibration.highValue, 'cm')"></span>
-          </button>
+        <div class="bg-black/20 p-4 rounded-2xl border border-white/5">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Titik 0 (permukaan tanah)</p>
+              <p class="text-lg font-bold text-white"
+                x-text="distanceCalibration.zeroValue > 0 ? formatNilaiSensor(distanceCalibration.zeroValue, 'cm') : 'Belum disetel'"></p>
+            </div>
+            <div class="text-right">
+              <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Perkiraan Nilai</p>
+              <p class="text-lg font-bold text-primary"
+                x-text="distanceLevelPreview === null ? '—' : formatNilaiSensor(distanceLevelPreview, 'cm')"></p>
+              <p class="text-[10px] text-gray-400" x-text="distanceLevelDirectionText"></p>
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 mt-2"
+            x-text="distanceCalibration.savedZero > 0 ? `Titik 0 tersimpan: ${formatNilaiSensor(distanceCalibration.savedZero, 'cm')}` : 'Titik 0 belum disetel.'"></p>
         </div>
+
+        <button @click="setDistanceZeroPoint()" class="calibration-action w-full">
+          <span class="calibration-action-label">📌 Set Titik 0</span>
+          <span class="calibration-action-value"
+            x-text="formatNilaiSensor(distanceCalibration.rawValue, 'cm')"></span>
+        </button>
 
         <!-- Interval Sensor (hanya untuk remote node) -->
         <div class="bg-black/20 p-4 rounded-2xl border border-white/5" x-show="distanceCalibration.nodeId !== 0">
-          <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Interval Node (menit)</p>
+          <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Interval Kirim (menit)</p>
           <input type="range" min="5" max="120" step="1" x-model.number="distanceCalibration.intervalSec"
             class="w-full" />
           <p class="text-xs text-gray-400 mt-1" x-text="distanceCalibration.intervalSec + ' menit'"></p>
         </div>
 
         <div class="flex flex-col gap-2 mt-4">
-          <button @click="resetDistanceCalibration()" class="btn ghost w-full">Atur Ulang Bawaan</button>
+          <button @click="resetDistanceCalibration()" class="btn ghost w-full">Hapus Setelan</button>
         </div>
 
       </div>
@@ -184,51 +196,64 @@
       </div>
       <div class="modal-body p-6 space-y-6">
         <div class="flex flex-col gap-2">
-          <div class="text-lg font-bold text-white" x-text="fuelCalibration.label || 'Fuel Height'"></div>
+          <div class="text-lg font-bold text-white" x-text="fuelCalibration.label || 'Tinggi Cairan'"></div>
           <div class="text-sm text-gray-400"
             x-text="`${getUiLabel('nodeSensor')} ${fuelCalibration.nodeId}:${fuelCalibration.childId}`"></div>
-          <p class="text-xs text-gray-500">Sensor ini memakai rentang 0–190 Ω. Nilai 190 Ω = -10 cm dan 0 Ω = 15 cm.
-            Titik 0 cm dianggap permukaan tanah.</p>
+          <p class="text-xs text-gray-500">Setel <b>titik 0</b> saat permukaan cairan tepat di dasar tangki
+            (tangki kosong): tunggu pembacaan stabil, lalu tekan <b>Set Titik 0</b>. Setelah itu nilai
+            <b>plus</b> berarti isi tangki bertambah.</p>
         </div>
 
         <div class="grid grid-cols-2 gap-4">
           <div class="bg-black/20 p-3 rounded-2xl border border-white/5 min-h-[96px] flex flex-col justify-center">
-            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Pembacaan</p>
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Tinggi Cairan</p>
             <div class="flex flex-1 items-center justify-center">
               <p class="text-3xl font-black text-white leading-none text-center"
                 x-text="formatNilaiSensor(fuelCalibration.currentValue, 'cm')"></p>
             </div>
           </div>
           <div class="bg-black/20 p-3 rounded-2xl border border-white/5 min-h-[96px] flex flex-col justify-center">
-            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Raw Sensor</p>
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Nilai Sensor</p>
             <div class="flex flex-1 items-center justify-center">
               <p class="text-3xl font-black text-primary leading-none text-center"
-                x-text="formatNilaiSensor(fuelCalibration.rawValue, 'Ω')"></p>
+                x-text="formatNilaiSensor(fuelCalibration.rawValue, '')"></p>
             </div>
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-3 mt-5">
-          <button @click="setFuelCalibrationPoint('low')" class="calibration-action">
-            <span class="calibration-action-label">Nilai -10 cm</span>
-            <span class="calibration-action-value" x-text="formatNilaiSensor(fuelCalibration.lowValue, 'Ω')"></span>
-          </button>
-          <button @click="setFuelCalibrationPoint('high')" class="calibration-action">
-            <span class="calibration-action-label">Nilai +15 cm</span>
-            <span class="calibration-action-value" x-text="formatNilaiSensor(fuelCalibration.highValue, 'Ω')"></span>
-          </button>
+        <div class="bg-black/20 p-4 rounded-2xl border border-white/5">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Titik 0 (dasar tangki)</p>
+              <p class="text-lg font-bold text-white"
+                x-text="fuelCalibration.zeroValue > 0 ? formatNilaiSensor(fuelCalibration.zeroValue, '') : 'Belum disetel'"></p>
+            </div>
+            <div class="text-right">
+              <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Perkiraan Nilai</p>
+              <p class="text-lg font-bold text-primary"
+                x-text="fuelLevelPreview === null ? '—' : formatNilaiSensor(fuelLevelPreview, 'cm')"></p>
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 mt-2"
+            x-text="fuelCalibration.savedZero > 0 ? `Titik 0 tersimpan: ${formatNilaiSensor(fuelCalibration.savedZero, '')}` : 'Titik 0 belum disetel.'"></p>
         </div>
+
+        <button @click="setFuelZeroPoint()" class="calibration-action w-full">
+          <span class="calibration-action-label">📌 Set Titik 0</span>
+          <span class="calibration-action-value"
+            x-text="formatNilaiSensor(fuelCalibration.rawValue, '')"></span>
+        </button>
 
         <!-- Interval Sensor (hanya untuk remote node) -->
         <div class="bg-black/20 p-4 rounded-2xl border border-white/5" x-show="fuelCalibration.nodeId !== 0">
-          <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Interval Node (menit)</p>
+          <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Interval Kirim (menit)</p>
           <input type="range" min="5" max="120" step="1" x-model.number="fuelCalibration.intervalSec"
             class="w-full" />
           <p class="text-xs text-gray-400 mt-1" x-text="fuelCalibration.intervalSec + ' menit'"></p>
         </div>
 
         <div class="flex flex-col gap-2 mt-4">
-          <button @click="resetFuelCalibration()" class="btn ghost w-full">Atur Ulang Bawaan</button>
+          <button @click="resetFuelCalibration()" class="btn ghost w-full">Hapus Setelan</button>
         </div>
 
       </div>
@@ -251,7 +276,7 @@
         <div class="text-lg font-bold text-white" x-text="sensorInterval.label"></div>
         <div class="text-sm text-gray-400" x-text="`Node ${sensorInterval.nodeId}:${sensorInterval.childId}`"></div>
         <div class="bg-black/20 p-4 rounded-2xl border border-white/5">
-          <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Interval Node (menit)</p>
+          <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Interval Kirim (menit)</p>
           <input type="range" min="5" max="120" step="1" x-model.number="sensorInterval.intervalSec" class="w-full" />
           <p class="text-xs text-gray-400 mt-1" x-text="sensorInterval.intervalSec + ' menit'"></p>
         </div>
@@ -259,6 +284,61 @@
       <div class="modal-footer">
         <button @click="closeSensorInterval()" class="btn ghost">Batal</button>
         <button @click="saveSensorInterval()" class="btn primary">Simpan Interval</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- === Modal Info Node (baterai, timer, kalibrasi) === -->
+  <div x-show="showNodeInfoModal" @keydown.escape.window="closeNodeInfo()" x-transition
+    class="modal calibration-layer" @click.self="closeNodeInfo()">
+    <div class="modal-card calibration">
+      <div class="modal-header">
+        <h3 x-text="'Info Node ' + (nodeInfo.nodeId ?? '')"></h3>
+        <button @click="closeNodeInfo()" class="modal-close">×</button>
+      </div>
+      <div class="modal-body p-6 space-y-6">
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-black/20 p-4 rounded-2xl border border-white/5">
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-1">🔋 Baterai</p>
+            <p class="text-lg font-bold text-white"
+              x-text="nodeBatteryText(nodeInfo) + (nodeInfo.batteryAgeMs !== null ? ' • ' + formatAgeText(nodeInfo.batteryAgeMs) : '')"></p>
+          </div>
+          <div class="bg-black/20 p-4 rounded-2xl border border-white/5">
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-1">⏱️ Interval Kirim</p>
+            <p class="text-lg font-bold text-white"
+              x-text="nodeTimerText(nodeInfo) + (nodeInfo.sleepAgeMs !== null ? ' • ' + formatAgeText(nodeInfo.sleepAgeMs) : '')"></p>
+          </div>
+          <div class="bg-black/20 p-4 rounded-2xl border border-white/5">
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-1">🕒 Terakhir Terlihat</p>
+            <p class="text-lg font-bold text-white" x-text="formatAgeText(nodeInfo.lastSeenAgeMs)"></p>
+          </div>
+          <div class="bg-black/20 p-4 rounded-2xl border border-white/5">
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-1">🌿 Sensor</p>
+            <p class="text-lg font-bold text-white" x-text="nodeInfo.sensors.length"></p>
+          </div>
+        </div>
+        <div>
+          <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Kalibrasi Sensor</p>
+          <div class="list">
+            <template x-for="sensor in nodeInfo.sensors" :key="`ni-${sensor.nodeId}:${sensor.childId}`">
+              <div class="item cursor-pointer hover:bg-white/5" @click="openNodeInfoSensor(sensor)">
+                <div class="flex-1">
+                  <div class="title" x-text="sensor.label || getUiLabel('sensor')"></div>
+                  <div class="meta"
+                    x-text="`${getUiLabel('node')} ${sensor.nodeId}:${sensor.childId} • ${formatNilaiSensor(sensor.value, getSensorUnit({ sensorNode: sensor.nodeId, sensorChild: sensor.childId }))}`"></div>
+                  <div class="meta" x-show="sensorCalibrationText(sensor)" x-text="sensorCalibrationText(sensor)"></div>
+                </div>
+                <span class="badge badge-muted">Atur</span>
+              </div>
+            </template>
+            <div class="item" x-show="nodeInfo.sensors.length === 0">
+              <div class="meta">Node ini belum punya sensor terdaftar.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button @click="closeNodeInfo()" class="btn ghost">Tutup</button>
       </div>
     </div>
   </div>
@@ -440,15 +520,15 @@
             <div class="meta" x-text="network.state || '-'"></div>
           </div>
           <div class="item">
-            <div class="title">SSID Tersimpan</div>
+            <div class="title">Jaringan Tersimpan</div>
             <div class="meta" x-text="network.configuredSsid || '-'"></div>
           </div>
           <div class="item">
-            <div class="title">SSID Aktif</div>
+            <div class="title">Jaringan Aktif</div>
             <div class="meta" x-text="network.connectedSsid || '-'"></div>
           </div>
           <div class="item" x-show="network.apMode">
-            <div class="title">SSID AP</div>
+            <div class="title">Jaringan Perangkat</div>
             <div class="meta" x-text="network.apSsid || '-'"></div>
           </div>
           <div class="item">
@@ -464,7 +544,7 @@
             <div class="meta" x-text="network.kontrolId || config.mqtt.kontrolId"></div>
           </div>
           <div class="item">
-            <div class="title">Firmware</div>
+            <div class="title">Versi Perangkat</div>
             <div class="meta" x-text="firmwareLabel"></div>
           </div>
           <div class="item" x-show="showLoRaChannelUI">
@@ -589,13 +669,38 @@
         <div class="card-header mb-4">
           <h3>Daftar Node</h3>
         </div>
+        <!-- Node terhubung: baterai, timer/interval, kalibrasi saat ini -->
+        <div class="mb-6">
+          <h4 class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Node Terhubung</h4>
+          <div class="list">
+            <template x-for="node in nodeSummaries" :key="`node-${node.nodeId}`">
+              <div class="item cursor-pointer hover:bg-white/5" @click="openNodeInfo(node)">
+                <div class="flex-1">
+                  <div class="title flex items-baseline gap-2 flex-wrap">
+                    <span x-text="`${getUiLabel('node')} ${node.nodeId}`"></span>
+                    <span class="badge" :class="nodeBatteryBadge(node)"
+                      x-text="'🔋 ' + nodeBatteryText(node) + ' • ⏱️ ' + nodeTimerText(node)"></span>
+                  </div>
+                  <div class="meta"
+                    x-text="`${node.sensors.length} sensor • terakhir terlihat ${formatAgeText(node.lastSeenAgeMs)}`"></div>
+                </div>
+                <span class="badge badge-info">Info</span>
+              </div>
+            </template>
+            <div class="item" x-show="nodeSummaries.length === 0">
+              <div class="meta">Belum ada node terhubung.</div>
+            </div>
+          </div>
+          <p class="help mt-2">Ketuk node untuk melihat <b>baterai</b>, <b>interval kirim</b>, dan <b>kalibrasi</b> tiap sensor.</p>
+        </div>
+
         <!-- Bagian Sensor -->
         <div class="mb-6">
           <h4 class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4" x-text="getUiLabel('sensor')"></h4>
           <div class="list">
             <template x-for="sensor in sensors" :key="`${sensor.nodeId}:${sensor.childId}`">
               <div class="item cursor-pointer hover:bg-white/5"
-                @click="sensor.nodeId === 0 ? null : (isMoistureSensor(sensor) ? openMoistureCalibration(sensor) : (isDistanceSensor(sensor) ? openDistanceCalibration(sensor) : (isFuelHeightSensor(sensor) ? openFuelCalibration(sensor) : openSensorInterval(sensor))))">
+                @click="sensor.nodeId === 0 ? null : (isMoistureSensor(sensor) ? openMoistureCalibration(sensor) : (isFuelHeightSensor(sensor) ? openFuelCalibration(sensor) : (isDistanceSensor(sensor) ? openDistanceCalibration(sensor) : openSensorInterval(sensor))))">
                 <div class="flex-1">
                   <div class="title flex items-baseline gap-2 flex-wrap">
                     <span x-text="sensor.label || getUiLabel('sensor')"></span>
@@ -603,6 +708,7 @@
                       x-text="formatNilaiSensor(sensor.value, getSensorUnit({ sensorNode: sensor.nodeId, sensorChild: sensor.childId }))"></span>
                   </div>
                   <div class="meta" x-text="`${getUiLabel('node')} ${sensor.nodeId}:${sensor.childId}`"></div>
+                  <div class="meta" x-show="sensorInfoLine(sensor)" x-text="sensorInfoLine(sensor)"></div>
                 </div>
                 <span class="badge"
                   :class="(isMoistureSensor(sensor) || isDistanceSensor(sensor) || isFuelHeightSensor(sensor)) ? 'badge-info' : 'badge-muted'"
@@ -661,9 +767,9 @@
 
         <!-- Koneksi Online (MQTT) — selalu tampil -->
         <hr class="my-4 border-gray-700" />
-        <p class="text-sm font-bold text-gray-300 mb-3">🌐 Koneksi Online (MQTT)</p>
+        <p class="text-sm font-bold text-gray-300 mb-3">🌐 Koneksi Online</p>
         <div class="form-group">
-          <label>Alamat Broker MQTT</label>
+          <label>Alamat Server Online</label>
           <input type="text" placeholder="wss://..." x-model.lazy="config.mqtt.url" />
         </div>
         <div class="form-row">
@@ -699,7 +805,7 @@
             <div class="flex flex-wrap items-center gap-3">
               <input type="number" min="0" max="83" step="1" class="w-24" x-model.number="loraChannelSetup.value" />
               <button type="button" class="btn primary small" @click="saveLoRaChannel()"
-                :disabled="actionInFlight">Simpan Channel</button>
+                :disabled="actionInFlight">Simpan Saluran</button>
             </div>
             <p class="help"
               x-text="loraChannelSetup.stored ? `Tersimpan: ${loraChannelSetup.value}` : `Bawaan: ${loraChannelSetup.defaultValue}`">
@@ -709,7 +815,7 @@
         <div class="item" x-show="isLocalConnected">
           <div class="form-group w-full">
             <div class="flex justify-between items-center gap-3 mb-3">
-              <label class="m-0">Sensitivitas Touch Button</label>
+              <label class="m-0">Kepekaan Tombol Sentuh</label>
               <button type="button" class="btn ghost small" @click="loadTouchSensitivity()"
                 :disabled="touchSensitivityLoading || actionInFlight">Muat Ulang</button>
             </div>
@@ -738,7 +844,7 @@
               </template>
             </div>
             <p class="help" x-show="touchButtons.length === 0"
-              x-text="touchSensitivityLoading ? 'Membaca sensitivitas touch...' : 'Tekan Muat Ulang untuk membaca sensitivitas touch dari kontroler.'"></p>
+              x-text="touchSensitivityLoading ? 'Membaca kepekaan tombol...' : 'Tekan Muat Ulang untuk membaca setelan tombol dari perangkat.'"></p>
             <div class="flex justify-end mt-3" x-show="touchButtons.length > 0">
               <button type="button" class="btn ghost small" @click="resetTouchSensitivity()"
                 :disabled="actionInFlight">Reset Semua</button>
@@ -798,7 +904,7 @@
         <div class="item">
           <div class="form-group w-full">
             <label>Kredensial WiFi</label>
-            <input type="text" placeholder="SSID baru" x-model="wifiSetup.ssid" @input="clearWifiNetworkAuth()"
+            <input type="text" placeholder="Nama jaringan (SSID)" x-model="wifiSetup.ssid" @input="clearWifiNetworkAuth()"
               class="mb-2" />
             <input type="password" placeholder="Sandi WiFi (kosongkan jika tanpa sandi)" x-model="wifiSetup.pass"
               class="mb-3" x-ref="wifiPasswordInput" :disabled="wifiSetup.auth === 'open'"
@@ -814,10 +920,10 @@
         </div>
         <div class="item">
           <div class="form-group w-full">
-            <label>Pembaruan Firmware</label>
+            <label>Pembaruan Perangkat</label>
             <input type="file" accept=".bin,application/octet-stream" @change="handleFirmwareFileChange" class="mb-3" />
             <p class="help mb-3"
-              x-text="wifiSetup.firmwareName ? `Berkas dipilih: ${wifiSetup.firmwareName}` : 'Pilih berkas firmware .bin untuk diunggah.'">
+              x-text="wifiSetup.firmwareName ? `Berkas dipilih: ${wifiSetup.firmwareName}` : 'Pilih berkas pembaruan (.bin) untuk diunggah.'">
             </p>
             <button type="button" class="btn primary small" @click="uploadGreenhouseFirmware()"
               :disabled="actionInFlight">Kirim Pembaruan</button>
@@ -828,7 +934,7 @@
       <div class="modal-footer">
         <button type="button" onclick="window.resetUiCache && window.resetUiCache()" class="btn ghost"
           :disabled="actionInFlight">
-          Reset Cache App
+          Setel Ulang Tampilan
         </button>
         <button x-show="settingsTab === 'settings' && mode !== 'mqtt'"
           @click="saveAndReconnect"
@@ -842,34 +948,34 @@
     </div>
   </div>
 
-  <!-- === Modal Kredensial MQTT === -->
+  <!-- === Modal Akun Online === -->
   <div x-show="showMqttCredentialModal" @keydown.escape.window="closeMqttCredentialModal()" x-transition class="modal"
     style="z-index: 2600;" @click.self="closeMqttCredentialModal()">
     <div class="modal-card credential">
       <div class="modal-header">
-        <h3>Masukkan Kredensial MQTT</h3>
+        <h3>Masukkan Akun Online</h3>
         <button type="button" @click="closeMqttCredentialModal()" class="modal-close">×</button>
       </div>
       <div class="modal-body p-8">
         <p class="text-sm text-gray-400 mb-4 leading-relaxed">
-          Credential MQTT belum tersimpan di browser ini. Isi sekali, lalu aplikasi akan memakainya otomatis di
+          Akun online belum tersimpan di browser ini. Isi sekali, lalu aplikasi akan memakainya otomatis di
           koneksi berikutnya.
         </p>
         <div class="rounded-xl border border-[#2a2a30] bg-black/20 p-3 mb-4">
           <div class="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Status simpan</div>
           <div class="text-sm font-semibold text-white"
-            x-text="((config?.mqtt?.username || '') && (config?.mqtt?.password || '')) ? `Tersimpan di karjo_ui_config (${(config.mqtt.username || '').slice(0, 2)}*** / ${(config.mqtt.password || '').slice(0, 2)}***)` : 'Belum tersimpan di browser ini'">
+            x-text="((config?.mqtt?.username || '') && (config?.mqtt?.password || '')) ? `Tersimpan di aplikasi ini (${(config.mqtt.username || '').slice(0, 2)}*** / ${(config.mqtt.password || '').slice(0, 2)}***)` : 'Belum tersimpan di browser ini'">
           </div>
         </div>
         <div class="form-group">
-          <label>Username MQTT</label>
-          <input type="text" placeholder="Username broker" x-model="mqttCredentialForm.username"
+          <label>Nama Pengguna</label>
+          <input type="text" placeholder="Nama pengguna" x-model="mqttCredentialForm.username"
             autocomplete="username" />
         </div>
         <div class="form-group">
-          <label>Password MQTT</label>
+          <label>Sandi</label>
           <div class="relative w-full">
-            <input :type="mqttCredentialForm.showPassword ? 'text' : 'password'" placeholder="Password broker"
+            <input :type="mqttCredentialForm.showPassword ? 'text' : 'password'" placeholder="Sandi"
               x-model="mqttCredentialForm.password" autocomplete="current-password" class="w-full pr-12" />
             <button type="button" @click="mqttCredentialForm.showPassword = !mqttCredentialForm.showPassword"
               class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white focus:outline-none"
@@ -969,6 +1075,8 @@
           <div class="text-lg font-bold text-white" x-text="moistureCalibration.label || 'Kelembapan Tanah'"></div>
           <div class="text-sm text-gray-400"
             x-text="`${getUiLabel('nodeSensor')} ${moistureCalibration.nodeId}:${moistureCalibration.childId}`"></div>
+          <p class="text-xs text-gray-500">Tekan <b>Nilai Kering</b> saat sensor ditancap di tanah kering, dan
+            <b>Nilai Basah</b> saat sensor ditancap di tanah basah/berair.</p>
         </div>
 
         <div class="grid grid-cols-2 gap-4">
@@ -980,7 +1088,7 @@
             </div>
           </div>
           <div class="bg-black/20 p-3 rounded-2xl border border-white/5 min-h-[96px] flex flex-col justify-center">
-            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Pembacaan Sensor</p>
+            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Nilai Sensor</p>
             <div class="flex flex-1 items-center justify-center">
               <p class="text-3xl font-black text-primary leading-none text-center"
                 x-text="formatNilaiAdc(moistureCalibration.rawValue)"></p>
@@ -1001,7 +1109,7 @@
 
         <!-- Interval Sensor (hanya untuk remote node) -->
         <div class="bg-black/20 p-4 rounded-2xl border border-white/5" x-show="moistureCalibration.nodeId !== 0">
-          <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Interval Node (menit)</p>
+          <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Interval Kirim (menit)</p>
           <input type="range" min="5" max="120" step="1" x-model.number="moistureCalibration.intervalSec"
             class="w-full" />
           <p class="text-xs text-gray-400 mt-1" x-text="moistureCalibration.intervalSec + ' menit'"></p>
@@ -1417,7 +1525,7 @@
                 </div>
                 <div class="mt-1 grid grid-cols-2 gap-1">
                   <span>Nilai: <span class="font-bold" x-text="formatCloudValue(s.value)"></span></span>
-                  <span>Raw: <span x-text="formatCloudValue(s.raw_value)"></span></span>
+                  <span>Nilai Sensor: <span x-text="formatCloudValue(s.raw_value)"></span></span>
                   <span x-show="s.battery !== null">Baterai: <span x-text="s.battery + '%'"></span></span>
                 </div>
               </div>
@@ -1486,7 +1594,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260914a"></script>
+  <script src="app.js?v=20260916d"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
