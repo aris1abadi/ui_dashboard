@@ -757,8 +757,8 @@
       </div>
 
       <div class="tab-panel" x-show="settingsTab === 'settings'" x-transition>
-        <!-- Cloud Backend — selalu tampil -->
-        <div class="form-group">
+        <!-- Alamat cloud hanya untuk web portal lokal (teknis) -->
+        <div class="form-group" x-show="isLocalPortalHost">
           <label>☁️ Alamat Cloud Backend (Riwayat)</label>
           <input type="text" placeholder="https://vps-anda:4000" x-model.lazy="config.cloudBaseUrl" />
           <p class="help">Biarkan kosong jika tidak pakai cloud. Untuk testing lokal: http://IP_PC:4000</p>
@@ -766,29 +766,25 @@
 
         <!-- Koneksi Lokal — hanya saat mode lokal atau offline -->
         <div x-show="mode !== 'mqtt' || !connected">
-          <hr class="my-4 border-gray-700" />
-          <p class="text-sm font-bold text-gray-300 mb-3">🔌 Koneksi Lokal</p>
-          <div class="form-group">
+          <hr class="my-4 border-gray-700" x-show="isLocalPortalHost" />
+          <p class="text-sm font-bold text-gray-300 mb-3" x-show="isLocalPortalHost">🔌 Koneksi Lokal</p>
+          <div class="form-group" x-show="isLocalPortalHost">
             <label>Alamat Dasar Lokal</label>
             <input type="text" placeholder="http://192.168.4.1" x-model.lazy="config.localBaseUrl" />
             <p class="help">Gunakan http://192.168.4.1 untuk koneksi langsung ke AP kontroller.</p>
           </div>
         </div>
 
-        <!-- Koneksi Online (MQTT) — selalu tampil -->
+        <!-- Akun Online — server sudah tersimpan di aplikasi (tidak perlu diisi) -->
         <hr class="my-4 border-gray-700" />
-        <p class="text-sm font-bold text-gray-300 mb-3">🌐 Koneksi Online</p>
-        <div class="form-group">
-          <label>Alamat Server Online</label>
-          <input type="text" placeholder="wss://..." x-model.lazy="config.mqtt.url" />
-        </div>
+        <p class="text-sm font-bold text-gray-300 mb-3">🌐 Akun Online</p>
         <div class="form-row">
           <div class="form-group"><label>Nama Pengguna</label><input type="text" x-model.lazy="config.mqtt.username" />
           </div>
           <div class="form-group"><label>Sandi</label><input type="password" x-model.lazy="config.mqtt.password" />
           </div>
         </div>
-        <p class="help">MQTT tetap dipakai untuk kontrol dari dashboard ke kontroller.</p>
+        <p class="help">Isi akun yang sama dengan yang dipakai untuk masuk ke aplikasi ini.</p>
 
         <!-- Pengaturan Umum — selalu tampil -->
         <hr class="my-4 border-gray-700" />
@@ -1634,7 +1630,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260917d"></script>
+  <script src="app.js?v=20260917e"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;

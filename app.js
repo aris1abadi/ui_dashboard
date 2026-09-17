@@ -834,6 +834,23 @@ function app() {
     get sensorNodeIds() { return Array.from(new Set(this.sensors.map(s => s.nodeId).filter(id => Number.isFinite(id) && id > 0))); },
     get isLocalConnected() { return this.connected && this.mode === 'local'; },
     get showMaintenanceTab() { return this.isLocalConnected; },
+    // "Web portal lokal" = UI dibuka dari alamat lokal perangkat (mis. 192.168.4.1).
+    // Field koneksi yang bersifat teknis (alamat server/broker, alamat cloud,
+    // alamat dasar lokal) hanya ditampilkan di sana — bukan di dashboard cloud.
+    get isLocalPortalHost() {
+      const host = `${window.location?.hostname || ''}`;
+      if (!host) return false;
+      if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local')) return true;
+      if (host === '[::1]' || host === '::1') return true;
+      const match = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+      if (!match) return false;
+      const a = Number(match[1]);
+      const b = Number(match[2]);
+      if (a === 127 || a === 10) return true;
+      if (a === 192 && b === 168) return true;
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      return false;
+    },
     get filteredWifiScanResults() {
       if (this.wifiScanFilter === 'open') return this.wifiScanResults.filter(item => `${item.auth || ''}`.toLowerCase() === 'open');
       if (this.wifiScanFilter === 'secured') return this.wifiScanResults.filter(item => `${item.auth || ''}`.toLowerCase() !== 'open');
