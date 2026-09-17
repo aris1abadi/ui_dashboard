@@ -833,6 +833,15 @@ function app() {
     },
     get sensorNodeIds() { return Array.from(new Set(this.sensors.map(s => s.nodeId).filter(id => Number.isFinite(id) && id > 0))); },
     get isLocalConnected() { return this.connected && this.mode === 'local'; },
+    // Token akses dari backend (pengganti sandi broker statis di klien).
+    // Dianggap tidak ada bila kosong atau hampir kedaluwarsa (1 menit lagi).
+    get activeAuthToken() {
+      const token = `${this.config?.authToken || ''}`.trim();
+      if (!token) return '';
+      const exp = Number(this.config?.authTokenExpiresAt || 0);
+      if (exp && exp * 1000 - 60000 <= Date.now()) return '';
+      return token;
+    },
     get showMaintenanceTab() { return this.isLocalConnected; },
     // "Web portal lokal" = UI dibuka dari alamat lokal perangkat (mis. 192.168.4.1).
     // Field koneksi yang bersifat teknis (alamat server/broker, alamat cloud,
@@ -1294,8 +1303,19 @@ function app() {
           return;
         }
 
+        // 1) Ambil token akses dari backend cloud (bila dikonfigurasi).
+        //    Token inilah yang dipakai sebagai sandi MQTT — sandi broker tidak
+        //    lagi disimpan/diketik di browser. Kalau backend belum mengaktifkan
+        //    auth (503) atau tidak terjangkau, kita jatuh ke kredensial lama.
+        const backendAuth = await this.fetchBackendToken(username, password);
+        if (backendAuth?.error) throw new Error(backendAuth.error);
+
+        // 2) Pastikan MQTT tersambung (dengan token bila tersedia)
         if (!this.mqttClient?.connected) {
-          throw new Error('UI tidak bisa terhubung ke kontroller.');
+          this.connectionPreference = 'mqtt';
+          localStorage.setItem('karjo_ui_connection_mode', this.connectionPreference);
+          const siap = await this.connectMqttAndWait();
+          if (!siap) throw new Error('UI tidak bisa terhubung ke kontroller.');
         }
         const result = await this.sendMqttLogin(username, password);
         if (!result?.ok) throw new Error(result?.error || 'Login online ditolak.');
@@ -1312,6 +1332,23 @@ function app() {
       }
     },
     logoutApplication(skipPrompt = false) {
+      // Cabut token di backend (jika dipakai) supaya tidak bisa dipakai lagi
+      const token = `${this.config?.authToken || ''}`.trim();
+      const base = `${this.config?.cloudBaseUrl || ''}`.trim().replace(/\/$/, '');
+      if (token && base) {
+        try {
+          fetch(`${base}/api/v1/auth/logout`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token }),
+            keepalive: true
+          });
+        } catch { /* abaikan: token tetap kedaluwarsa sendiri */ }
+      }
+      this.config.authToken = '';
+      this.config.authTokenExpiresAt = 0;
+      this.config.authMqttUsername = '';
+      this.saveConfig();
       this.stopKaConnections();
       this.isAuthenticated = false;
       localStorage.removeItem(loginSessionKey);
@@ -1401,6 +1438,72 @@ function app() {
       this.applyNetworkScope(parseStatusJson(data));
       return true;
     },
+    // ── Token akses dari backend cloud ──────────────────────────────────
+    // Menggantikan sandi broker MQTT statis: browser login ke backend, backend
+    // menerbitkan token berumur pendek, dan broker memverifikasi token itu
+    // (POST /api/v1/auth/mqtt + /auth/acl). Bila backend belum mengaktifkan auth
+    // atau tidak terjangkau, kembalian { skip: true } → lanjut cara lama.
+    async fetchBackendToken(username, password) {
+      const base = `${this.config?.cloudBaseUrl || ''}`.trim().replace(/\/$/, '');
+      if (!base || !username || !password) return { skip: true };
+      try {
+        const pengendali = new AbortController();
+        const tid = setTimeout(() => pengendali.abort(), 8000);
+        const res = await fetch(`${base}/api/v1/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+          signal: pengendali.signal,
+          cache: 'no-store'
+        });
+        clearTimeout(tid);
+        let data = null;
+        try { data = await res.json(); } catch { data = null; }
+        if (res.ok && data?.token) {
+          this.config.authToken = data.token;
+          this.config.authTokenExpiresAt = Number(data.expiresAt || 0);
+          this.config.authMqttUsername = data.mqtt?.username || `ui:${username}`;
+          if (data.mqtt?.url) this.config.mqtt.url = data.mqtt.url;
+          // Sandi broker TIDAK lagi disimpan di browser
+          if (data.mqtt?.password) this.config.mqtt.password = '';
+          this.saveConfig();
+          return { ok: true };
+        }
+        if (res.status === 401) {
+          return { error: data?.error || 'Nama pengguna atau sandi salah.' };
+        }
+        return { skip: true };
+      } catch {
+        return { skip: true };
+      }
+    },
+    connectMqttAndWait(timeoutMs = 12000) {
+      return new Promise(resolve => {
+        if (this.mqttClient?.connected) return resolve(true);
+        const mulai = Date.now();
+        this.connectMqtt();
+        const pengawas = setInterval(() => {
+          if (this.mqttClient?.connected) {
+            clearInterval(pengawas);
+            resolve(true);
+            return;
+          }
+          if (Date.now() - mulai >= timeoutMs) {
+            clearInterval(pengawas);
+            resolve(false);
+          }
+        }, 300);
+      });
+    },
+    // Sesi kontrol perangkat berakhir (mis. perintah ditolak firmware) → minta
+    // sandi lagi tanpa mengubah setelan lain.
+    lockControlForAuth(pesan) {
+      this.isAuthenticated = false;
+      localStorage.removeItem(loginSessionKey);
+      this.login.error = pesan || 'Sesi kontrol berakhir. Masukkan sandi lagi.';
+      this.login.password = '';
+      this.showToast(this.login.error, 'error');
+    },
     connectMqtt() {
       this.stopKaConnections();
       this.mqttConnectFailureHandled = false;
@@ -1410,10 +1513,12 @@ function app() {
         this.connected = false;
         return this.showToast('Alamat koneksi online belum diisi.', 'error');
       }
-      const mqttCredentials = {
-        username: `${this.config?.mqtt?.username || ''}`.trim(),
-        password: `${this.config?.mqtt?.password || ''}`.trim()
-      };
+      const mqttCredentials = this.activeAuthToken
+        ? { username: `${this.config?.authMqttUsername || 'ui'}`.trim(), password: this.activeAuthToken }
+        : {
+            username: `${this.config?.mqtt?.username || ''}`.trim(),
+            password: `${this.config?.mqtt?.password || ''}`.trim()
+          };
       const hasCredential = !!mqttCredentials.username && !!mqttCredentials.password;
       if (!hasCredential) {
         this.mqttCredentialPendingConnect = true;
@@ -1515,6 +1620,17 @@ function app() {
         this.clearAuthPasswordPending();
         if (toBool(parsedAuth.ok)) {
           this.showToast(parsedAuth.message || 'Password admin berhasil diubah.');
+        }
+      }
+      if(cmd === 'respError' || cmd === 'respInfo') {
+        const info = parsePayloadKontrol(muatan);
+        if (!toBool(info.ok)) {
+          const pesan = `${info.error || info.message || ''}`.trim();
+          if (/login required/i.test(pesan)) {
+            this.lockControlForAuth('Perintah ini butuh masuk ulang. Masukkan sandi perangkat.');
+          } else if (pesan) {
+            this.showToast(pesan, 'error');
+          }
         }
       }
       if(cmd === 'respSensor') {

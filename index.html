@@ -775,16 +775,18 @@
           </div>
         </div>
 
-        <!-- Akun Online — server sudah tersimpan di aplikasi (tidak perlu diisi) -->
+        <!-- Akun Online — dashboard cloud memakai token dari backend, jadi
+             kredensial broker tidak perlu (dan tidak ditampilkan) di sini. -->
         <hr class="my-4 border-gray-700" />
         <p class="text-sm font-bold text-gray-300 mb-3">🌐 Akun Online</p>
-        <div class="form-row">
+        <div class="form-row" x-show="isLocalPortalHost">
           <div class="form-group"><label>Nama Pengguna</label><input type="text" x-model.lazy="config.mqtt.username" />
           </div>
           <div class="form-group"><label>Sandi</label><input type="password" x-model.lazy="config.mqtt.password" />
           </div>
         </div>
-        <p class="help">Isi akun yang sama dengan yang dipakai untuk masuk ke aplikasi ini.</p>
+        <p class="help" x-show="isLocalPortalHost">Dipakai hanya bila login token backend tidak aktif (cadangan teknis).</p>
+        <p class="help" x-show="!isLocalPortalHost">Masuk memakai nama pengguna &amp; sandi akun Anda — server online sudah tersimpan di aplikasi.</p>
 
         <!-- Pengaturan Umum — selalu tampil -->
         <hr class="my-4 border-gray-700" />
@@ -1630,7 +1632,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260917e"></script>
+  <script src="app.js?v=20260917f"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
