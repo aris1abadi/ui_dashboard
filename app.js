@@ -23,6 +23,10 @@ const LOCAL_FALLBACK_AFTER_MS = 20000;
   const themeClassMap = { light: 'theme-light', ocean: 'theme-ocean', sunset: 'theme-sunset' };
   const LORA_CHANNEL_MIN = 0;
   const LORA_CHANNEL_MAX = 83;
+  // Rentang level air (cm) — harus sama dengan config::WATER_LEVEL_MIN_CM/MAX_CM.
+  // Titik 0 = permukaan tanah: minus = air di bawah, plus = air di atas.
+  const WATER_LEVEL_MIN_CM = -15;
+  const WATER_LEVEL_MAX_CM = 15;
 const LEGACY_MQTT_USERNAME = 'abadinet';
 const LEGACY_MQTT_PASSWORD = 'abadinet123';
 const MQTT_AUTH_ERROR_PATTERNS = [
@@ -84,11 +88,18 @@ function ambilDaftar(muatan, key) {
   if (key && Array.isArray(isian[key])) return isian[key];
   return [];
 }
+// Payload respSensor PARSIAL (penghematan kuota): firmware menambahkan
+// "partial": true dan hanya mengirim sensor yang nilainya berubah.
+function isPartialSensorPayload(muatan) {
+  const isian = parsePayloadKontrol(muatan);
+  return isian?.partial === true || isian?.partial === 'true' || isian?.delta === true;
+}
 function parseStatusJson(muatan) {
   const isian = parsePayloadKontrol(muatan);
   const status = isian.status && typeof isian.status === 'object' ? isian.status : isian;
   return {
     state: status.state || '',
+    link: status.link || '',
     configuredSsid: status.configuredSsid || '',
     connectedSsid: status.connectedSsid || '',
     ip: status.ip || '',
@@ -96,6 +107,13 @@ function parseStatusJson(muatan) {
     kontrolId: status.kontrolId || '',
     apMode: toBool(status.apMode),
     apSsid: status.apSsid || '',
+    // Modem USB (USB host) — jalur internet yang dipakai otomatis bila modem aktif
+    usbModemSupported: toBool(status.usbModem?.supported),
+    usbModemActive: toBool(status.usbModem?.active),
+    usbModemConnected: toBool(status.usbModem?.connected),
+    usbModemMode: status.usbModem?.mode || '',
+    usbModemIp: status.usbModem?.ip || '',
+    usbModemText: status.usbModem?.text || '',
     fixedTaskCount: toNumber(status.fixedTaskCount ?? status.taskCount ?? 0),
     allowTaskCreate: status.allowTaskCreate !== false,
     allowTaskDelete: status.allowTaskDelete !== false,
@@ -178,6 +196,7 @@ function parseTasksJson(muatan) {
       threshold: toNumber(item.threshold ?? 0),
       activateDurationMs: toNumber(item.activateDurationMs ?? 0),
       thresholdEnabled: toBool(item.thresholdEnabled),
+      thresholdAbove: toBool(item.thresholdAbove),
       actuatorActive: toBool(item.actuatorActive),
       lastSensorValue: item.lastSensorValue === '' || item.lastSensorValue === undefined ? null : toNumber(item.lastSensorValue, null),
       lastSensorRawValue: item.lastSensorRawValue === '' || item.lastSensorRawValue === undefined ? null : toNumber(item.lastSensorRawValue, null),
@@ -421,7 +440,7 @@ function app() {
         sensor: 'Node Sensor',
         actuator: 'Aktuator',
         schedule: 'Jadwal Otomasi',
-        threshold: 'Ambang Threshold',
+        threshold: 'Ambang Batas',
         calibration: 'Kalibrasi Kelembapan Tanah',
         calibrationDistance: 'Kalibrasi Ketinggian Air',
         calibrationFuel: 'Kalibrasi Tinggi Cairan',
@@ -1482,7 +1501,17 @@ function app() {
         }
       }
       if(cmd === 'respSensor') {
-        this.sensors = this.mergeSensors(parseSensorsJson(muatan));
+        // Payload bisa PARSIAL (penghematan kuota: hanya sensor yang berubah,
+        // ±450 B bukan ±4,4 KB). Yang parsial digabung ke daftar yang ada,
+        // yang penuh menggantikan daftar seperti sebelumnya.
+        const daftarSensor = parseSensorsJson(muatan);
+        this.sensors = isPartialSensorPayload(muatan)
+          ? this.applySensorDelta(daftarSensor)
+          : this.mergeSensors(daftarSensor);
+        if (isPartialSensorPayload(muatan) && !this.sensors.length) {
+          // Daftar masih kosong (UI baru terbuka) → minta daftar penuh.
+          this.publishCommand({ cmd: 'getSensors' });
+        }
         this.syncMoistureCalibrationFromSensors();
         this.syncDistanceCalibrationFromSensors();
         this.syncFuelCalibrationFromSensors();
@@ -1616,6 +1645,22 @@ function app() {
         }
       });
       this.tasks = newTasks;
+    },
+    // Gabungkan sensor PARSIAL (delta) ke daftar yang sedang ditampilkan.
+    // Sensor yang belum ada ditambahkan (mis. node baru selesai presentasi).
+    applySensorDelta(newSensors) {
+      const daftar = Array.isArray(this.sensors) ? [...this.sensors] : [];
+      const posisi = new Map(daftar.map((sensor, index) => [`${Number(sensor.nodeId)}:${Number(sensor.childId)}`, index]));
+      (Array.isArray(newSensors) ? newSensors : []).forEach(sensor => {
+        const key = `${Number(sensor.nodeId)}:${Number(sensor.childId)}`;
+        if (posisi.has(key)) {
+          const index = posisi.get(key);
+          daftar[index] = { ...daftar[index], ...sensor };
+        } else {
+          daftar.push(sensor);
+        }
+      });
+      return daftar;
     },
     mergeSensors(newSensors) {
       const prevSensors = new Map((this.sensors || []).map(sensor => [`${Number(sensor.nodeId)}:${Number(sensor.childId)}`, sensor]));
@@ -2416,15 +2461,29 @@ function app() {
       const actuator = this.actuators.find(a => a.index === task.actuatorIndex); 
       return actuator ? actuator.online : true; 
     },
+    // Nilai sensor terkini untuk sebuah task. Diutamakan dari daftar sensor yang
+    // sedang tampil (termasuk saat perangkat hanya mengirim DELTA/penghematan
+    // kuota), fallback ke nilai terakhir yang dikirim bersama daftar task.
+    getTaskSensorValue(task) {
+      if (!task) return null;
+      const node = Number(task.sensorNode);
+      const child = Number(task.sensorChild);
+      const sensor = (this.sensors || []).find(s => Number(s.nodeId) === node && Number(s.childId) === child);
+      const langsung = Number(sensor?.value);
+      if (Number.isFinite(langsung)) return langsung;
+      const tersimpan = Number(task.lastSensorValue);
+      return Number.isFinite(tersimpan) ? tersimpan : null;
+    },
     getTaskTriggerSource(task) {
       if (!task) return 'none';
       const source = normalisasiSumberTrigger(task.lastTriggerSource ?? task.triggerSource ?? task.source ?? task.lastTrigger ?? task.trigger ?? 'none');
       if (source !== 'none') return source;
       if (!task.actuatorActive) return 'none';
 
-      const rawSensor = Number(task.lastSensorValue);
+      const rawSensor = this.getTaskSensorValue(task);
       const threshold = Number(task.threshold);
-      if (task.thresholdEnabled && Number.isFinite(rawSensor) && Number.isFinite(threshold) && rawSensor <= threshold) {
+      const terpicu = toBool(task.thresholdAbove) ? rawSensor >= threshold : rawSensor <= threshold;
+      if (task.thresholdEnabled && Number.isFinite(rawSensor) && Number.isFinite(threshold) && terpicu) {
         return 'threshold';
       }
 
@@ -2437,6 +2496,83 @@ function app() {
       }
 
       return 'manual';
+    },
+    // ── Ambang batas otomasi: rentang mengikuti satuan sensor terpilih ──
+    // Sensor ketinggian air memakai cm dengan titik 0 = permukaan tanah (-15…+15).
+    editingTaskSensor() {
+      const key = `${this.editingTask?.sensorKey || ''}`;
+      return (this.sensors || []).find(sensor => `${sensor.nodeId}:${sensor.childId}` === key) || null;
+    },
+    sensorIsWaterLevel(sensor) {
+      return !!sensor && (this.isDistanceSensor(sensor) || this.isFuelHeightSensor(sensor));
+    },
+    get thresholdRange() {
+      const sensor = this.editingTaskSensor();
+      if (this.sensorIsWaterLevel(sensor)) {
+        return {
+          min: WATER_LEVEL_MIN_CM,
+          max: WATER_LEVEL_MAX_CM,
+          step: 0.5,
+          unit: 'cm',
+          minLabel: `${WATER_LEVEL_MIN_CM} cm`,
+          maxLabel: `+${WATER_LEVEL_MAX_CM} cm`
+        };
+      }
+      if (sensor && this.isMoistureSensor(sensor)) {
+        return { min: 0, max: 100, step: 1, unit: '%', minLabel: '0 %', maxLabel: '100 %' };
+      }
+      const unit = `${this.getSensorUnit({ sensorNode: sensor?.nodeId, sensorChild: sensor?.childId }) || ''}`;
+      const label = `${sensor?.label || ''}`.toLowerCase();
+      const suhu = toNumber(sensor?.valueType, NaN) === 1 || unit === '°C' ||
+                   label.includes('temp') || label.includes('lm35') || label.includes('suhu');
+      if (suhu) {
+        return { min: -10, max: 60, step: 0.5, unit: '°C', minLabel: '-10 °C', maxLabel: '60 °C' };
+      }
+      return {
+        min: 0,
+        max: 100,
+        step: 1,
+        unit,
+        minLabel: unit ? `0 ${unit}` : '0',
+        maxLabel: unit ? `100 ${unit}` : '100'
+      };
+    },
+    defaultThresholdForSensorKey(key) {
+      const sensor = (this.sensors || []).find(item => `${item.nodeId}:${item.childId}` === `${key}`);
+      if (this.sensorIsWaterLevel(sensor)) return 0;
+      return 50;
+    },
+    clampEditingThreshold() {
+      if (!this.editingTask) return;
+      const range = this.thresholdRange;
+      const nilai = toNumber(this.editingTask.threshold, range.min);
+      const nilaiTerbatas = Math.min(range.max, Math.max(range.min, nilai));
+      this.editingTask.threshold = Math.round(nilaiTerbatas / range.step) * range.step;
+    },
+    onTaskSensorChange() {
+      this.syncFixedTaskActuator();
+      if (this.editingTask) {
+        this.editingTask.threshold = this.defaultThresholdForSensorKey(this.editingTask.sensorKey);
+      }
+      this.clampEditingThreshold();
+    },
+    setThresholdDirection(above) {
+      if (!this.editingTask) return;
+      this.editingTask.thresholdAbove = !!above;
+    },
+    get thresholdAboveActive() {
+      return !!this.editingTask?.thresholdAbove;
+    },
+    get thresholdDirectionHint() {
+      const air = this.sensorIsWaterLevel(this.editingTaskSensor());
+      if (air) {
+        return this.thresholdAboveActive
+          ? 'Aktuator menyala saat air berada di ATAS ambang (mis. pompa buang).'
+          : 'Aktuator menyala saat air berada di BAWAH ambang (mis. pompa isi).';
+      }
+      return this.thresholdAboveActive
+        ? 'Aktuator menyala saat nilai sensor di ATAS ambang.'
+        : 'Aktuator menyala saat nilai sensor di BAWAH ambang.';
     },
     getTaskButtonClass(task) {
       if (!task || !this.isActuatorOnline(task)) return 'status-btn-offline';
@@ -2562,18 +2698,21 @@ function app() {
       if (task) {
         this.editingTask = { ...task, sensorKey: `${task.sensorNode}:${task.sensorChild}`, durationMinutes: Math.round(task.activateDurationMs / 60000) };
       } else {
+        const sensorKey = this.sensors.length > 0 ? `${this.sensors[0].nodeId}:${this.sensors[0].childId}` : '';
         this.editingTask = { 
           index: -1, 
           label: '', 
-          sensorKey: this.sensors.length > 0 ? `${this.sensors[0].nodeId}:${this.sensors[0].childId}` : '', 
+          sensorKey, 
           actuatorIndex: this.actuators.length > 0 ? this.actuators[0].index : 0, 
-          threshold: 50, 
+          threshold: this.defaultThresholdForSensorKey(sensorKey), 
           durationMinutes: 15, 
           thresholdEnabled: false,
+          thresholdAbove: false,
           schedules: []
         };
       }
       this.syncFixedTaskActuator();
+      this.clampEditingThreshold();
       this.showTaskModal = true; 
     },
 
@@ -2598,6 +2737,7 @@ function app() {
         threshold: this.editingTask.threshold || 0,
         activateDurationMs: (this.editingTask.durationMinutes || 0) * 60000,
         thresholdEnabled: !!this.editingTask.thresholdEnabled,
+        thresholdAbove: !!this.editingTask.thresholdAbove,
         schedules: (this.editingTask.schedules || []).map((schedule, slotIndex) => ({
           pickupTime: schedule.pickupTime || schedule.time || '00:00',
           durationMinutes: toNumber(schedule.durationMinutes ?? schedule.duration, 0),
@@ -3718,8 +3858,7 @@ function app() {
       if (value >= -75) return 2;
       if (value >= -82) return 1;
       return 0;
-    },
-    wifiSignalLabel(rssi) {
+    },    wifiSignalLabel(rssi) {
       const value = Number(rssi);
       if (!Number.isFinite(value)) return 'Tidak diketahui';
       if (value >= -55) return 'Sangat bagus';

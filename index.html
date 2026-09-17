@@ -520,6 +520,16 @@
             <div class="meta" x-text="network.state || '-'"></div>
           </div>
           <div class="item">
+            <div class="title">Koneksi Internet</div>
+            <div class="meta" x-text="network.link || '-'"
+              :class="network.usbModemActive ? 'text-cyan-300 font-semibold' : ''"></div>
+          </div>
+          <div class="item" x-show="network.usbModemSupported">
+            <div class="title">Modem USB</div>
+            <div class="meta" x-text="network.usbModemText || '-'"
+              :class="network.usbModemConnected ? 'text-emerald-300 font-semibold' : ''"></div>
+          </div>
+          <div class="item">
             <div class="title">Jaringan Tersimpan</div>
             <div class="meta" x-text="network.configuredSsid || '-'"></div>
           </div>
@@ -832,7 +842,7 @@
                     <span class="touch-scale-label">Peka</span>
                   </div>
                   <div class="touch-sensitivity-footer">
-                    <span class="help m-0" x-text="`Kepekaan ${button.sensitivity}/10 • delta ${touchSensitivityToThreshold(button.sensitivity)}`"></span>
+                    <span class="help m-0" x-text="`Kepekaan ${button.sensitivity}/10`"></span>
                     <div class="flex gap-2">
                       <button type="button" class="btn ghost small" @click="resetTouchSensitivity(button)"
                         :disabled="actionInFlight">Reset</button>
@@ -1021,7 +1031,7 @@
         <div class="form-row">
           <div class="form-group">
             <label x-text="getUiLabel('sensor')"></label>
-            <select x-model="editingTask.sensorKey" @change="syncFixedTaskActuator()">
+            <select x-model="editingTask.sensorKey" @change="onTaskSensorChange()">
               <template x-for="s in sensors">
                 <option :value="`${s.nodeId}:${s.childId}`" x-text="s.label"></option>
               </template>
@@ -1040,13 +1050,29 @@
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label x-text="`${getUiLabel('threshold')}: ${Number(editingTask.threshold).toFixed(1)}`"></label>
-            <input type="range" min="0" max="100" step="0.1" x-model.number="editingTask.threshold" />
+            <label
+              x-text="`${getUiLabel('threshold')} (${thresholdRange.unit || 'satuan'}): ${formatNilaiSensor(editingTask.threshold, thresholdRange.unit)}`"></label>
+            <input type="range" :min="thresholdRange.min" :max="thresholdRange.max" :step="thresholdRange.step"
+              x-model.number="editingTask.threshold" />
+            <div class="flex justify-between text-[10px] text-gray-600 mt-1 uppercase tracking-widest">
+              <span x-text="thresholdRange.minLabel"></span>
+              <span x-text="thresholdRange.maxLabel"></span>
+            </div>
           </div>
           <div class="form-group">
             <label>Durasi (menit): <span x-text="editingTask.durationMinutes"></span></label>
             <input type="range" min="1" max="60" step="1" x-model.number="editingTask.durationMinutes" />
           </div>
+        </div>
+        <div class="form-group">
+          <label>Otomasi menyala saat nilai sensor</label>
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" class="btn ghost small" :class="{ 'active': !thresholdAboveActive }"
+              @click="setThresholdDirection(false)">Di bawah ambang</button>
+            <button type="button" class="btn ghost small" :class="{ 'active': thresholdAboveActive }"
+              @click="setThresholdDirection(true)">Di atas ambang</button>
+          </div>
+          <p class="help" x-text="thresholdDirectionHint"></p>
         </div>
         <label class="checkbox-row"><input type="checkbox" x-model="editingTask.thresholdEnabled" /> Threshold
           aktif</label>
@@ -1268,7 +1294,7 @@
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div class="form-group">
                   <label class="block text-sm font-semibold text-gray-400 mb-2" x-text="getUiLabel('sensor')"></label>
-                  <select x-model="editingTask.sensorKey" @change="syncFixedTaskActuator()"
+                  <select x-model="editingTask.sensorKey" @change="onTaskSensorChange()"
                     class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white">
                     <template x-for="s in sensors">
                       <option :value="`${s.nodeId}:${s.childId}`" x-text="s.label"></option>
@@ -1291,15 +1317,16 @@
               <div class="space-y-8 bg-black/20 p-6 rounded-2xl border border-white/5">
                 <div class="form-group mb-0">
                   <div class="flex justify-between items-center mb-4">
-                    <label class="text-sm font-semibold text-gray-400" x-text="getUiLabel('threshold')"></label>
+                    <label class="text-sm font-semibold text-gray-400"
+                      x-text="`${getUiLabel('threshold')} (${thresholdRange.unit || 'satuan'})`"></label>
                     <span class="bg-primary/20 text-primary px-3 py-1 rounded-lg font-bold text-sm"
-                      x-text="Number(editingTask.threshold).toFixed(1)"></span>
+                      x-text="formatNilaiSensor(editingTask.threshold, thresholdRange.unit)"></span>
                   </div>
-                  <input type="range" min="0" max="100" step="0.1" x-model.number="editingTask.threshold"
-                    class="w-full accent-primary" />
+                  <input type="range" :min="thresholdRange.min" :max="thresholdRange.max" :step="thresholdRange.step"
+                    x-model.number="editingTask.threshold" class="w-full accent-primary" />
                   <div class="flex justify-between text-[10px] text-gray-600 mt-2 uppercase tracking-widest">
-                    <span>Min (0)</span>
-                    <span>Max (100)</span>
+                    <span x-text="`Min (${thresholdRange.minLabel})`"></span>
+                    <span x-text="`Max (${thresholdRange.maxLabel})`"></span>
                   </div>
                 </div>
 
@@ -1315,6 +1342,19 @@
                     <span>1 m</span>
                     <span>60 m</span>
                   </div>
+                </div>
+              </div>
+
+              <div class="space-y-8 bg-black/20 p-6 rounded-2xl border border-white/5">
+                <div class="form-group mb-0">
+                  <label class="text-sm font-semibold text-gray-400 mb-2 block">Otomasi menyala saat nilai sensor</label>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <button type="button" class="btn ghost small" :class="{ 'active': !thresholdAboveActive }"
+                      @click="setThresholdDirection(false)">Di bawah ambang</button>
+                    <button type="button" class="btn ghost small" :class="{ 'active': thresholdAboveActive }"
+                      @click="setThresholdDirection(true)">Di atas ambang</button>
+                  </div>
+                  <p class="help mt-2" x-text="thresholdDirectionHint"></p>
                 </div>
               </div>
 
@@ -1594,7 +1634,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260916d"></script>
+  <script src="app.js?v=20260917d"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;

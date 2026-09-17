@@ -442,6 +442,20 @@ input, textarea, [contenteditable="true"] {
   background: rgba(255, 255, 255, 0.05);
 }
 
+/* Penanda pilihan aktif (mis. filter pindai WiFi) */
+.btn.ghost.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #000;
+  font-weight: 700;
+}
+
+.btn.ghost.active:hover {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+  color: #000;
+}
+
 .btn.small {
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
