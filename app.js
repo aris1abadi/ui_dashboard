@@ -344,6 +344,7 @@ function app() {
     maintenanceConfirm: { title: '', message: '', confirmText: 'Ya', action: '' },
     factoryResetPassword: '',
     factoryResetBusy: false,
+    apInfo: { ssid: '', password: '', url: '' },
     showMoistureCalibrationModal: false,
     moistureCalibrationPollTimer: null,
     moistureCalibration: { nodeId: 0, childId: 0, label: '', rawValue: null, dryValue: 800, wetValue: 490, currentValue: null, error: '', intervalSec: 60 },
@@ -1948,6 +1949,10 @@ function app() {
         await this.factoryResetDevice();
         return;
       }
+      if (action.startsWith('ap:')) {
+        await this.applyApMode(action === 'ap:on');
+        return;
+      }
       if (!this.beginAction()) return;
       try {
         const [kind, value] = action.split(':');
@@ -2005,6 +2010,50 @@ function app() {
           method: 'POST', timeoutMs: 8000, body: '{}'
         });
         this.showToast(result?.ok ? 'Perangkat dimulai ulang...' : 'Gagal memulai ulang perangkat.', result?.ok ? 'info' : 'error');
+      } catch (e) {
+        this.showToast('Terjadi kesalahan.', 'error');
+      } finally {
+        this.endAction();
+      }
+    },
+
+    // ── Titik akses lokal (AP) — padanan perintah serial `ap on|off` ───────
+    // Jalur masuk portal tanpa jaringan/internet. Cara utama tetap tombol AP
+    // di perangkat; ini jalur cadangan bila tombol tidak berfungsi.
+    askApMode(nyalakan) {
+      const on = !!nyalakan;
+      this.maintenanceConfirm = {
+        title: on ? 'Nyalakan AP Lokal' : 'Matikan AP Lokal',
+        message: on
+          ? 'Jalur WiFi dimatikan dan diganti hotspot perangkat (internet lewat WiFi berhenti; modem USB tetap jalan). Portal pindah ke http://192.168.4.1/ — sambungkan dulu ke WiFi KarjoAgro KA-xxxx. Lanjutkan?'
+          : 'Hotspot dimatikan dan perangkat menyambung ulang ke jaringan tersimpan. Koneksi ke portal ini akan terputus. Lanjutkan?',
+        confirmText: on ? 'Ya, Nyalakan' : 'Ya, Matikan',
+        action: on ? 'ap:on' : 'ap:off'
+      };
+      this.showMaintenanceConfirm = true;
+    },
+    async applyApMode(nyalakan) {
+      if (!this.beginAction()) return;
+      try {
+        const result = await this.localFetch('/api/ap', {
+          method: 'POST', timeoutMs: 12000, body: JSON.stringify({ on: !!nyalakan })
+        });
+        if (nyalakan) {
+          if (result?.ok) {
+            this.apInfo = {
+              ssid: result.apSsid || '',
+              password: result.apPassword || '',
+              url: result.portalUrl || 'http://192.168.4.1/'
+            };
+            this.showToast('AP lokal aktif: ' + (this.apInfo.ssid || 'KarjoAgro'));
+          } else {
+            this.showToast('Gagal menyalakan AP lokal. Cek log serial perangkat.', 'error');
+          }
+        } else {
+          // Perangkat langsung memutus hotspot, jadi respons bisa tidak sampai.
+          this.apInfo = { ssid: '', password: '', url: '' };
+          this.showToast('AP lokal dimatikan. Perangkat menyambung ulang ke jaringan tersimpan.');
+        }
       } catch (e) {
         this.showToast('Terjadi kesalahan.', 'error');
       } finally {

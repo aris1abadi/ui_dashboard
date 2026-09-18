@@ -812,6 +812,33 @@
             </p>
           </div>
         </div>
+        <!-- ── Titik akses lokal (AP): jalur masuk portal tanpa jaringan ── -->
+        <div class="item">
+          <div class="form-group w-full">
+            <div class="flex justify-between items-center gap-3 mb-2">
+              <label class="m-0">Titik Akses Lokal (AP)</label>
+              <span class="tag" x-text="network.apMode ? 'AKTIF' : 'nonaktif'"></span>
+            </div>
+            <p class="help mb-3" x-show="!network.apMode">
+              Nyalakan hotspot perangkat agar bisa masuk portal tanpa jaringan/internet. Nama WiFi-nya
+              <b>KarjoAgro &lt;ID Kontrol&gt;</b>. Jalur WiFi STA dimatikan; internet lewat modem USB tetap jalan.
+              Cara utama: tekan lama tombol AP di perangkat.
+            </p>
+            <p class="help mb-3" x-show="network.apMode"
+              x-text="`Hotspot aktif: ${network.apSsid || 'KarjoAgro ...'} • portal di http://${network.ip || '192.168.4.1'}/`">
+            </p>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" class="btn ghost small" @click="askApMode(true)" :disabled="actionInFlight"
+                x-show="!network.apMode">Nyalakan AP Lokal</button>
+              <button type="button" class="btn ghost small badge-danger" @click="askApMode(false)"
+                :disabled="actionInFlight" x-show="network.apMode">Matikan AP</button>
+            </div>
+            <p class="help mt-3" x-show="apInfo.ssid">
+              SSID <b x-text="apInfo.ssid"></b> • sandi <b x-text="apInfo.password"></b> • portal
+              <b x-text="apInfo.url"></b>
+            </p>
+          </div>
+        </div>
         <!-- ── Pemeliharaan data: padanan perintah serial (reset ../factory reset) ── -->
         <div class="item" x-show="isLocalConnected">
           <div class="form-group w-full">
@@ -1696,7 +1723,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260918g"></script>
+  <script src="app.js?v=20260918h"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
