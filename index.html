@@ -21,7 +21,7 @@
   <!-- === Layar Login === -->
   <div x-show="!isAuthenticated" x-transition.opacity class="login-screen" aria-modal="true" role="dialog"
     tabindex="-1">
-    <form @submit.prevent="attemptLogin" class="login-card">
+    <form @submit.prevent="attemptLogin(loginViaLocalApi ? 'local' : 'mqtt')" class="login-card">
       <button type="button" class="login-mqtt-credential-btn"
         @click="openMqttCredentialModal('Ubah akun online, lalu simpan untuk menyambungkan ulang.')"
         title="Ubah akun online" aria-label="Ubah akun online">
@@ -52,11 +52,9 @@
       </p>
 
       <div class="flex gap-2 items-stretch">
-        <button type="button" @click="attemptLogin('local')" class="btn ghost small px-4 whitespace-nowrap"
-          title="Login langsung ke lokal" :disabled="isLoginPending">Lokal</button>
         <button type="submit" class="btn flex-1"
-          :class="mode === 'mqtt' && connected ? 'login-online' : 'login-offline'"
-          :disabled="isLoginPending || !(mode === 'mqtt' && connected)">
+          :class="(mode === 'mqtt' && connected) || loginViaLocalApi ? 'login-online' : 'login-offline'"
+          :disabled="isLoginPending || (!loginViaLocalApi && !(mode === 'mqtt' && connected))">
           <span x-show="isLoginPending" class="login-spinner" aria-hidden="true"></span>
           <span x-text="isLoginPending ? 'Memproses...' : 'Login'"></span>
         </button>
@@ -1633,7 +1631,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260918a"></script>
+  <script src="app.js?v=20260918b"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;

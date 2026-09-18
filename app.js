@@ -368,6 +368,13 @@ function app() {
     get loginUiId() {
       return normalizeKontrolId(this.config?.uiId || this.login?.username || '');
     },
+    // Portal perangkat (dibuka dari alamat lokal, mis. http://192.168.4.1) selalu
+    // login lewat Web API perangkat. Dashboard cloud login lewat MQTT ke kontroler.
+    // Tidak ada lagi tombol pilihan "Lokal" di layar login — mode ditentukan dari
+    // alamat tempat UI ini dibuka.
+    get loginViaLocalApi() {
+      return this.isLocalPortalHost;
+    },
     get loginConnectionStatus() {
       if (this.mode === 'mqtt' && this.connected) return { text: 'Terhubung ke server online, siap masuk.', variant: 'badge-success' };
       if (this.mode === 'detecting') return { text: 'Menyambungkan ke server online...', variant: 'badge-warn' };
@@ -1271,9 +1278,13 @@ function app() {
       this.connectionPreference = normalizeConnectionPreference(localStorage.getItem('karjo_ui_connection_mode'));
       if (this.isAuthenticated) {
         this.startPreferredConnection();
+      } else if (this.loginViaLocalApi) {
+        // Portal perangkat: langsung deteksi Web API lokal supaya tombol Login
+        // siap ditekan (tanpa perlu kredensial broker).
+        this.connectLocal();
       } else {
-        // Belum masuk: sambungkan dulu ke server online (memakai kredensial yang
-        // sudah tersimpan) supaya perintah login bisa dikirim ke kontroler.
+        // Dashboard cloud: sambungkan dulu ke server online (memakai kredensial
+        // yang sudah tersimpan) supaya perintah login bisa dikirim ke kontroler.
         this.connectMqtt();
       }
     },
@@ -1395,7 +1406,7 @@ function app() {
     clearConnectionTimers() { if (this.localDetectTimer) clearTimeout(this.localDetectTimer); this.localDetectTimer = null; },
     startPreferredConnection() {
       if (!this.isAuthenticated) return;
-      if (this.connectionPreference === 'local') {
+      if (this.loginViaLocalApi || this.connectionPreference === 'local') {
         this.connectLocal();
         return;
       }
