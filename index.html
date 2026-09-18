@@ -383,12 +383,12 @@
                   :class="{ 'status-btn-on': task.actuatorActive && isActuatorOnline(task), 'status-btn-off': !task.actuatorActive && isActuatorOnline(task), 'status-btn-offline': !isActuatorOnline(task), 'status-btn-on-manual': task.actuatorActive && isActuatorOnline(task) && getTaskTriggerSource(task) === 'manual', 'status-btn-on-auto': task.actuatorActive && isActuatorOnline(task) && getTaskTriggerSource(task) !== 'manual' }"
                   @click="runTask(task.index, $event.currentTarget)"
                   :disabled="!isActuatorOnline(task) || actionInFlight"
-                  :aria-label="`${getSensorLabel(task)} ${formatNilaiSensor(task.lastSensorValue)}${getSensorUnit(task) ? ` ${getSensorUnit(task)}` : ''}`">
+                  :aria-label="`${getSensorLabel(task)} ${formatNilaiSensor(getTaskSensorValue(task))}${getSensorUnit(task) ? ` ${getSensorUnit(task)}` : ''}`">
                   <div class="glow-ring" :style="{ '--progress': getTaskProgress(task) + '%' }"></div>
                   <span class="label-top" :title="getSensorLabel(task)"
                     x-text="pendekkanTeks(getSensorLabel(task), 12)"></span>
                   <div class="value-container">
-                    <span class="value" x-text="formatNilaiSensor(task.lastSensorValue)"></span>
+                    <span class="value" x-text="formatNilaiSensor(getTaskSensorValue(task))"></span>
                     <span class="unit" x-show="getSensorUnit(task)" x-text="getSensorUnit(task)"></span>
                   </div>
                   <span class="label-bottom" :title="getTaskStatusLabel(task)"
@@ -1723,7 +1723,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260918h"></script>
+  <script src="app.js?v=20260918i"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
