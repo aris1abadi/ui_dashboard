@@ -1219,7 +1219,15 @@ function app() {
         setTimeout(() => {
           if (this.mqttCredentialPendingConnect) {
             this.mqttCredentialPendingConnect = false;
-            this.startPreferredConnection();
+            // Di layar login (belum terautentikasi) startPreferredConnection()
+            // langsung keluar → koneksi tidak pernah dibuat dan tombol Login
+            // tetap nonaktif. Jadi sambung MQTT langsung, kecuali bila sudah
+            // login (ikut preferensi mode koneksi yang berlaku).
+            if (this.isAuthenticated) {
+              this.startPreferredConnection();
+            } else {
+              this.connectMqtt();
+            }
           }
         }, 80);
       } catch (error) {
