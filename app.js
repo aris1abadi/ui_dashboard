@@ -1,4 +1,14 @@
 // --- DEFAULTS & KONSTANTA ---
+// Broker MQTT sendiri (Mosquitto di VPS): websocket-nya lewat domain dashboard
+// (sensor-nginx → karjoagro-mqtt:9001). Hosting statis (GitHub Pages) tidak punya
+// jalur itu → pakai domain produksi.
+const defaultMqttUrl = (() => {
+  const loc = typeof window !== 'undefined' ? window.location : null;
+  const host = `${loc?.host || ''}`;
+  const statis = /github\.io|pages\.dev|netlify\.app|vercel\.app/i.test(host);
+  if (loc?.protocol === 'https:' && host && !statis) return `wss://${host}/mqtt`;
+  return 'wss://kontrol.karjoagro.my.id/mqtt';
+})();
 const defaults = {
   localBaseUrl: 'http://192.168.4.1',
   manualDurationMs: 15000,
@@ -7,7 +17,7 @@ const defaults = {
   kontrolAliases: {},
   cloudBaseUrl: '',
   mqtt: {
-    url: 'wss://z442812a.ala.asia-southeast1.emqxsl.com:8084/mqtt',
+    url: defaultMqttUrl,
     username: '',
     password: '',
     prefixOut: 'abadinet-out',
@@ -992,6 +1002,11 @@ function app() {
       const mqttKontrolId = normalizeKontrolId(parsed?.mqtt?.kontrolId) || defaults.mqtt.kontrolId; 
       const kontrolIds = normalizeKontrolIdList(parsed?.kontrolIds, mqttKontrolId); 
       const parsedMqtt = parsed.mqtt || {};
+      // Migrasi broker: alamat EMQX Cloud lama diganti broker sendiri
+      // (wss://<domain>/mqtt). Sandi lama tidak berlaku di broker baru → kosongkan
+      // supaya dialog "Akun Online" meminta kredensial baru sekali.
+      const parsedMqttUrl = `${parsedMqtt.url || ''}`.trim();
+      const brokerLama = /emqxsl\.com|:8084\/mqtt/i.test(parsedMqttUrl);
       this.config = { 
         ...defaults, 
         ...parsed, 
@@ -1001,8 +1016,9 @@ function app() {
         mqtt: {
           ...defaults.mqtt,
           ...parsedMqtt,
-          username: `${parsedMqtt.username || ''}`.trim(),
-          password: `${parsedMqtt.password || ''}`.trim(),
+          url: brokerLama ? defaults.mqtt.url : (parsedMqttUrl || defaults.mqtt.url),
+          username: brokerLama ? '' : `${parsedMqtt.username || ''}`.trim(),
+          password: brokerLama ? '' : `${parsedMqtt.password || ''}`.trim(),
           kontrolId: mqttKontrolId
         }
       }; 
