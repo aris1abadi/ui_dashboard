@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 // build tidak punya app.js/alpine.min.js/mqtt.min.js/sw.js sama sekali.
 // File disalin apa adanya dari root repo supaya tetap satu sumber kebenaran
 // (hosting dari branch root juga tetap jalan).
-const STATIC_FILES = ['mqtt.min.js', 'alpine.min.js', 'app.js', 'sw.js', 'offline.html'];
+const STATIC_FILES = ['mqtt.min.js', 'alpine.min.js', 'app.js', 'sw.js', 'offline.html', 'manifest.webmanifest', 'icon.svg'];
 
 function copyStaticFiles() {
   let root = process.cwd();
@@ -29,6 +29,16 @@ function copyStaticFiles() {
           continue;
         }
         copyFileSync(src, resolve(target, file));
+      }
+
+      // Vite memindahkan manifest.webmanifest ke /assets/<nama>-<hash>.webmanifest,
+      // sedangkan `icons[].src` di dalamnya ditulis relatif ("icon.svg") sehingga
+      // browser meminta /assets/icon.svg. Salin juga ke /assets/ supaya ikon PWA
+      // tidak 404 (isi manifest tidak diubah oleh Vite).
+      const iconSrc = resolve(root, 'icon.svg');
+      if (existsSync(iconSrc)) {
+        mkdirSync(resolve(target, 'assets'), { recursive: true });
+        copyFileSync(iconSrc, resolve(target, 'assets', 'icon.svg'));
       }
     },
   };

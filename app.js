@@ -937,6 +937,12 @@ function app() {
 
     // Metode
     init() { 
+      // Alpine bisa mengevaluasi x-init lebih dari sekali (re-evaluasi tree).
+      // Tanpa penjagaan ini initAuthState() → connectMqtt() berjalan dua kali:
+      // klien MQTT pertama ditutup saat masih handshake (console warning
+      // "WebSocket is closed before the connection is established").
+      if (this._initialized) return;
+      this._initialized = true;
       this.loadConfig(); 
       this.ensureUiId(); 
       this.initAuthState(); 
