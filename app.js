@@ -1488,6 +1488,13 @@ function app() {
         this.connected = false;
         return this.showToast('Alamat koneksi online belum diisi.', 'error');
       }
+      // Pustaka MQTT dimuat dari mqtt.min.js — bila gagal termuat (mis. berkas
+      // tidak tersedia), beri pesan jelas alih-alih "mqtt is not defined".
+      if (typeof mqtt === 'undefined') {
+        this.mode = 'offline';
+        this.connected = false;
+        return this.showToast('Pustaka koneksi belum termuat. Muat ulang halaman (Ctrl+F5).', 'error');
+      }
       const mqttCredentials = {
         username: `${this.config?.mqtt?.username || ''}`.trim(),
         password: `${this.config?.mqtt?.password || ''}`.trim()
