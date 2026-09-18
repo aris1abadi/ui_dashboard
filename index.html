@@ -1143,23 +1143,26 @@
           </div>
         </div>
         <div class="form-group">
-          <label>Otomasi menyala saat nilai sensor</label>
+          <label>Otomasi Ambang Batas</label>
           <div class="flex flex-col gap-2">
             <label class="checkbox-row">
-              <input type="radio" name="arahAmbangRingkas" :checked="!thresholdAboveActive"
-                @change="setThresholdDirection(false)" />
+              <input type="radio" name="modeAmbangRingkas" value="off" :checked="thresholdMode === 'off'"
+                @change="setThresholdMode('off')" />
+              <span>Nonaktif — tanpa otomasi ambang</span>
+            </label>
+            <label class="checkbox-row">
+              <input type="radio" name="modeAmbangRingkas" value="below" :checked="thresholdMode === 'below'"
+                @change="setThresholdMode('below')" />
               <span>Di bawah ambang — ON saat nilai <b>≤</b> ambang</span>
             </label>
             <label class="checkbox-row">
-              <input type="radio" name="arahAmbangRingkas" :checked="thresholdAboveActive"
-                @change="setThresholdDirection(true)" />
+              <input type="radio" name="modeAmbangRingkas" value="above" :checked="thresholdMode === 'above'"
+                @change="setThresholdMode('above')" />
               <span>Di atas ambang — ON saat nilai <b>≥</b> ambang</span>
             </label>
           </div>
           <p class="help" x-text="thresholdDirectionHint"></p>
         </div>
-        <label class="checkbox-row"><input type="checkbox" x-model="editingTask.thresholdEnabled" /> Threshold
-          aktif</label>
 
         <div class="mt-8 pt-8 border-t border-[#2a2a30]" x-show="editingTask.index >= 0">
           <div class="flex justify-between items-center mb-4">
@@ -1431,30 +1434,27 @@
 
               <div class="space-y-8 bg-black/20 p-6 rounded-2xl border border-white/5">
                 <div class="form-group mb-0">
-                  <label class="text-sm font-semibold text-gray-400 mb-2 block">Otomasi menyala saat nilai sensor</label>
+                  <label class="text-sm font-semibold text-gray-400 mb-2 block">Otomasi Ambang Batas</label>
                   <div class="space-y-2">
-                    <label
-                      class="flex items-center gap-3 p-3 bg-[#202026] rounded-xl border border-[#2a2a30] cursor-pointer hover:bg-[#25252c] transition-colors">
-                      <input type="radio" name="arahAmbangLengkap" class="w-5 h-5 accent-primary"
-                        :checked="!thresholdAboveActive" @change="setThresholdDirection(false)" />
-                      <span class="text-sm font-semibold text-gray-200">Di bawah ambang — ON saat nilai ≤ ambang</span>
+                    <label class="checkbox-row">
+                      <input type="radio" name="modeAmbangLengkap" value="off" :checked="thresholdMode === 'off'"
+                        @change="setThresholdMode('off')" />
+                      <span>Nonaktif — tanpa otomasi ambang</span>
                     </label>
-                    <label
-                      class="flex items-center gap-3 p-3 bg-[#202026] rounded-xl border border-[#2a2a30] cursor-pointer hover:bg-[#25252c] transition-colors">
-                      <input type="radio" name="arahAmbangLengkap" class="w-5 h-5 accent-primary"
-                        :checked="thresholdAboveActive" @change="setThresholdDirection(true)" />
-                      <span class="text-sm font-semibold text-gray-200">Di atas ambang — ON saat nilai ≥ ambang</span>
+                    <label class="checkbox-row">
+                      <input type="radio" name="modeAmbangLengkap" value="below" :checked="thresholdMode === 'below'"
+                        @change="setThresholdMode('below')" />
+                      <span>Di bawah ambang — ON saat nilai ≤ ambang</span>
+                    </label>
+                    <label class="checkbox-row">
+                      <input type="radio" name="modeAmbangLengkap" value="above" :checked="thresholdMode === 'above'"
+                        @change="setThresholdMode('above')" />
+                      <span>Di atas ambang — ON saat nilai ≥ ambang</span>
                     </label>
                   </div>
                   <p class="help mt-2" x-text="thresholdDirectionHint"></p>
                 </div>
               </div>
-
-              <label
-                class="flex items-center gap-3 p-4 bg-[#202026] rounded-xl border border-[#2a2a30] cursor-pointer hover:bg-[#25252c] transition-colors">
-                <input type="checkbox" x-model="editingTask.thresholdEnabled" class="w-5 h-5 accent-primary" />
-                <span class="text-sm font-semibold text-gray-200">Aktifkan Otomasi Threshold</span>
-              </label>
 
               <div class="mt-8 pt-8 border-t border-[#2a2a30]">
                 <div class="flex justify-between items-center mb-4">
@@ -1745,7 +1745,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260918j"></script>
+  <script src="app.js?v=20260918k"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;

@@ -2907,10 +2907,30 @@ function app() {
       if (!this.editingTask) return;
       this.editingTask.thresholdAbove = !!above;
     },
+    // Satu pilihan untuk status + arah otomasi ambang (radio bertiga):
+    //   'off'   = otomasi ambang nonaktif
+    //   'below' = ON saat nilai <= ambang
+    //   'above' = ON saat nilai >= ambang
+    get thresholdMode() {
+      if (!this.editingTask?.thresholdEnabled) return 'off';
+      return this.editingTask.thresholdAbove ? 'above' : 'below';
+    },
+    setThresholdMode(mode) {
+      if (!this.editingTask) return;
+      if (mode === 'off') {
+        this.editingTask.thresholdEnabled = false;
+        return;
+      }
+      this.editingTask.thresholdEnabled = true;
+      this.editingTask.thresholdAbove = mode === 'above';
+    },
     get thresholdAboveActive() {
       return !!this.editingTask?.thresholdAbove;
     },
     get thresholdDirectionHint() {
+      if (!this.editingTask?.thresholdEnabled) {
+        return 'Otomasi ambang tidak dipakai — aktuator hanya jalan dari tombol atau jadwal.';
+      }
       const air = this.sensorIsWaterLevel(this.editingTaskSensor());
       if (air) {
         return this.thresholdAboveActive
