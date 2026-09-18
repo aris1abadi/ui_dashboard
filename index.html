@@ -690,7 +690,13 @@
                       x-text="'🔋 ' + nodeBatteryText(node) + ' • ⏱️ ' + nodeTimerText(node)"></span>
                   </div>
                   <div class="meta"
-                    x-text="`${node.sensors.length} sensor • terakhir terlihat ${formatAgeText(node.lastSeenAgeMs)}`"></div>
+                    x-text="node.sensors.length + ' sensor' + (node.actuatorCount ? ' • ' + node.actuatorCount + ' aktuator' : '') + ' • terakhir terlihat ' + formatAgeText(node.lastSeenAgeMs)">
+                  </div>
+                </div>
+                <button type="button" class="btn ghost small px-3" @click.stop="askRemoveNode(node.nodeId)"
+                  :disabled="node.nodeId === 0 || actionInFlight || mode !== 'local'"
+                  :title="node.nodeId === 0 ? 'Kontroler ini sendiri tidak bisa dihapus' : (mode === 'local' ? 'Hapus node ini' : 'Hanya bisa saat koneksi lokal')"
+                  aria-label="Hapus node">🗑</button>
                 </div>
                 <span class="badge badge-info">Info</span>
               </div>
@@ -699,7 +705,7 @@
               <div class="meta">Belum ada node terhubung.</div>
             </div>
           </div>
-          <p class="help mt-2">Ketuk node untuk melihat <b>baterai</b>, <b>interval kirim</b>, dan <b>kalibrasi</b> tiap sensor.</p>
+          <p class="help mt-2">Ketuk node untuk melihat <b>baterai</b>, <b>interval kirim</b>, dan <b>kalibrasi</b> tiap sensor. Tombol 🗑 melepas node beserta sensor/aktuatornya.</p>
         </div>
 
         <!-- Bagian Sensor -->
@@ -934,6 +940,46 @@
             </p>
             <button type="button" class="btn primary small" @click="uploadGreenhouseFirmware()"
               :disabled="actionInFlight">Kirim Pembaruan</button>
+          </div>
+        </div>
+        <!-- ── Pemeliharaan data: padanan perintah serial (reset ../factory reset) ── -->
+        <div class="item" x-show="isLocalConnected">
+          <div class="form-group w-full">
+            <label>Mengelola Data Perangkat</label>
+            <p class="help mb-3">Untuk membuang pendaftaran lama yang sudah tidak dipakai. Tindakan di bawah
+              tidak bisa dibatalkan. <b>Node 0</b> (kontroler ini sendiri) selalu terdaftar lagi otomatis.</p>
+
+            <div class="flex flex-wrap gap-2 mb-3">
+              <button type="button" class="btn ghost small" @click="askReset('nodes')" :disabled="actionInFlight">
+                Lepas semua node</button>
+              <button type="button" class="btn ghost small" @click="askReset('sensors')" :disabled="actionInFlight">
+                Lepas semua sensor</button>
+              <button type="button" class="btn ghost small" @click="askReset('actuators')" :disabled="actionInFlight">
+                Lepas semua aktuator</button>
+              <button type="button" class="btn ghost small" @click="askReset('tasks')" :disabled="actionInFlight">
+                Kosongkan task</button>
+              <button type="button" class="btn ghost small badge-danger" @click="askReset('data')"
+                :disabled="actionInFlight">Kosongkan semua data</button>
+            </div>
+
+            <button type="button" class="btn ghost small" @click="restartDevice()" :disabled="actionInFlight">
+              🔄 Mulai ulang perangkat</button>
+
+            <hr class="my-4 border-gray-700" />
+            <label>Reset Pabrik</label>
+            <p class="help mb-3">Menghapus <b>semua</b> setelan (akun, WiFi, saluran radio, kalibrasi, task,
+              data node) lalu perangkat restart. Butuh <b>sandi teknisi</b>.</p>
+            <div class="form-row">
+              <div class="form-group">
+                <input type="password" placeholder="Sandi teknisi" x-model="factoryResetPassword"
+                  autocomplete="off" />
+              </div>
+              <div class="form-group" style="justify-content: end;">
+                <button type="button" class="btn badge-danger small" @click="askFactoryReset()"
+                  :disabled="actionInFlight || factoryResetBusy"
+                  x-text="factoryResetBusy ? 'Memproses...' : 'Reset Pabrik'"></button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1626,12 +1672,31 @@
     </div>
   </div>
 
+  <!-- === Modal Konfirmasi Pemeliharaan Data === -->
+  <div x-show="showMaintenanceConfirm" @keydown.escape.window="showMaintenanceConfirm = false" x-transition class="modal"
+    style="z-index: 4100;" @click.self="showMaintenanceConfirm = false">
+    <div class="modal-card max-w-sm">
+      <div class="modal-header">
+        <h3 x-text="maintenanceConfirm.title"></h3>
+        <button @click="showMaintenanceConfirm = false" class="modal-close">×</button>
+      </div>
+      <div class="modal-body p-8 text-center">
+        <p class="text-gray-300 mb-4" x-text="maintenanceConfirm.message"></p>
+      </div>
+      <div class="modal-footer">
+        <button @click.stop="showMaintenanceConfirm = false" class="btn ghost">Batal</button>
+        <button @click.stop="runMaintenanceConfirm()" class="btn badge-danger" :disabled="actionInFlight"
+          x-text="maintenanceConfirm.confirmText || 'Ya'"></button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" x-show="toast.visible" x-text="toast.message"
     :style="{ borderColor: toast.type === 'error' ? '#ff6b6b' : '#25f4b8' }" x-transition></div>
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260918f"></script>
+  <script src="app.js?v=20260918g"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;

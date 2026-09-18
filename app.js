@@ -337,6 +337,13 @@ function app() {
     login: { username: '', password: '', kontrolId: '', error: '', newKontrolId: '', newKontrolAlias: '', newKontrolIdError: '', showPassword: false }, lastLoginKontrolSelection: null, loginRole: 'guest',
     authPasswordForm: { currentPassword: '', newPassword: '', confirmPassword: '', error: '', showCurrentPassword: false, showNewPassword: false },
     editingTask: {}, editingSchedule: {}, scheduleListTaskIndex: -1, taskToDelete: null,
+    // Daftar node dari /api/nodes (registri + sensor + aktuator)
+    registryNodes: [],
+    // Pemeliharaan data (padanan perintah serial: reset / factory reset)
+    showMaintenanceConfirm: false,
+    maintenanceConfirm: { title: '', message: '', confirmText: 'Ya', action: '' },
+    factoryResetPassword: '',
+    factoryResetBusy: false,
     showMoistureCalibrationModal: false,
     moistureCalibrationPollTimer: null,
     moistureCalibration: { nodeId: 0, childId: 0, label: '', rawValue: null, dryValue: 800, wetValue: 490, currentValue: null, error: '', intervalSec: 60 },
@@ -1742,14 +1749,16 @@ function app() {
         const dataJaringan = await this.localFetch('/api/status', { timeoutMs: 2000 });
         if (!dataJaringan) return false;
         const jaringan = parseStatusJson(dataJaringan);
-        const [sensorData, actuatorData, taskData] = await Promise.all([
+        const [sensorData, actuatorData, taskData, nodeData] = await Promise.all([
           this.localFetch('/api/sensors', { timeoutMs: 2500 }),
           this.localFetch('/api/actuators', { timeoutMs: 2500 }),
-          this.localFetch('/api/tasks', { timeoutMs: 2500 })
+          this.localFetch('/api/tasks', { timeoutMs: 2500 }),
+          this.localFetch('/api/nodes', { timeoutMs: 2500 })
         ]);
         this.applyNetworkScope(jaringan);
         this.sensors = this.mergeSensors(parseSensorsJson(sensorData));
         this.actuators = parseActuatorsJson(actuatorData);
+        this.registryNodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : [];
         this.mergeTasks(parseTasksJson(taskData));
         this.syncMoistureCalibrationFromSensors();
         this.syncDistanceCalibrationFromSensors();
@@ -1882,6 +1891,124 @@ function app() {
         this.showDeleteConfirm = false;
         this.showAllTasksModal = false;
         this.taskToDelete = null;
+      }
+    },
+
+    // ── Pemeliharaan data (padanan perintah serial) ──────────────────────
+    // Serial: reset nodes/sensors/actuators/tasks/data + factory reset <sandi>.
+    askRemoveNode(nodeId) {
+      const id = this.numOrNull(nodeId);
+      if (id === null) return;
+      if (id === 0) {
+        this.showToast('Node 0 adalah kontroler ini sendiri dan tidak bisa dihapus.', 'error');
+        return;
+      }
+      this.maintenanceConfirm = {
+        title: 'Hapus Node',
+        message: `Lepas node ${id} dari daftar? Sensor dan aktuator node ini ikut dilepas (kalibrasinya hilang).`,
+        confirmText: 'Ya, Hapus',
+        action: `node:${id}`
+      };
+      this.showMaintenanceConfirm = true;
+    },
+    askReset(scope) {
+      const label = {
+        nodes: 'seluruh pendaftaran node',
+        sensors: 'seluruh pendaftaran sensor',
+        actuators: 'seluruh pendaftaran aktuator',
+        tasks: 'semua task',
+        data: 'SEMUA data (task, sensor, aktuator, node)'
+      }[scope] || scope;
+      this.maintenanceConfirm = {
+        title: 'Konfirmasi',
+        message: `Kosongkan ${label}? Tindakan ini tidak bisa dibatalkan.`,
+        confirmText: 'Ya, Kosongkan',
+        action: `reset:${scope}`
+      };
+      this.showMaintenanceConfirm = true;
+    },
+    askFactoryReset() {
+      if (!`${this.factoryResetPassword || ''}`.trim()) {
+        this.showToast('Isi sandi teknisi dulu.', 'error');
+        return;
+      }
+      this.maintenanceConfirm = {
+        title: 'Reset Pabrik',
+        message: 'Hapus SEMUA setelan (akun, WiFi, saluran radio, kalibrasi, task, data node) lalu restart perangkat?',
+        confirmText: 'Ya, Reset Pabrik',
+        action: 'factory'
+      };
+      this.showMaintenanceConfirm = true;
+    },
+    async runMaintenanceConfirm() {
+      const action = `${this.maintenanceConfirm?.action || ''}`;
+      this.showMaintenanceConfirm = false;
+      if (!action) return;
+      if (action === 'factory') {
+        await this.factoryResetDevice();
+        return;
+      }
+      if (!this.beginAction()) return;
+      try {
+        const [kind, value] = action.split(':');
+        let result = null;
+        if (kind === 'node') {
+          result = await this.localFetch('/api/node/remove', {
+            method: 'POST', timeoutMs: 8000, body: JSON.stringify({ nodeId: Number(value) })
+          });
+        } else if (kind === 'reset') {
+          result = await this.localFetch('/api/reset', {
+            method: 'POST', timeoutMs: 8000, body: JSON.stringify({ scope: value })
+          });
+        }
+        if (result?.ok) {
+          this.showToast('Selesai. Daftar dimuat ulang.');
+          await this.refreshLocal();
+        } else {
+          this.showToast(result?.error || 'Tindakan gagal dijalankan.', 'error');
+        }
+      } catch (e) {
+        this.showToast('Terjadi kesalahan.', 'error');
+      } finally {
+        this.endAction();
+      }
+    },
+    async factoryResetDevice() {
+      const password = `${this.factoryResetPassword || ''}`.trim();
+      if (!password) {
+        this.showToast('Isi sandi teknisi dulu.', 'error');
+        return;
+      }
+      if (!this.beginAction()) return;
+      this.factoryResetBusy = true;
+      try {
+        const result = await this.localFetch('/api/factory-reset', {
+          method: 'POST', timeoutMs: 8000, body: JSON.stringify({ password })
+        });
+        this.factoryResetPassword = '';
+        if (result?.ok) {
+          this.showToast(result?.message || 'Reset pabrik dijalankan. Perangkat restart...');
+        } else {
+          this.showToast('Gagal: sandi teknisi salah atau perangkat tidak merespons.', 'error');
+        }
+      } catch (e) {
+        this.showToast('Terjadi kesalahan.', 'error');
+      } finally {
+        this.factoryResetBusy = false;
+        this.endAction();
+      }
+    },
+    async restartDevice() {
+      if (!this.beginAction()) return;
+      try {
+        const result = await this.localFetch('/api/restart', {
+          method: 'POST', timeoutMs: 8000, body: '{}'
+        });
+        this.showToast(result?.ok ? 'Perangkat dimulai ulang...' : 'Gagal memulai ulang perangkat.', result?.ok ? 'info' : 'error');
+      } catch (e) {
+        this.showToast('Terjadi kesalahan.', 'error');
+      } finally {
+        this.endAction();
       }
     },
 
@@ -2228,14 +2355,30 @@ function app() {
     },
     get nodeSummaries() {
       const map = new Map();
+      const pastikan = (nodeId) => {
+        let node = map.get(nodeId);
+        if (!node) {
+          node = {
+            nodeId, sensors: [], battery: null, batteryAgeMs: null, sleepIntervalMs: null,
+            sleepAgeMs: null, lastSeenAgeMs: null, known: false, localOut: false, actuatorCount: 0
+          };
+          map.set(nodeId, node);
+        }
+        return node;
+      };
+      // Node dari registri (termasuk yang belum/tidak punya sensor aktif).
+      (this.registryNodes || []).forEach(entri => {
+        const nodeId = this.numOrNull(entri?.nodeId);
+        if (nodeId === null) return;
+        const node = pastikan(nodeId);
+        node.known = entri.known === true || entri.known === 1;
+        node.localOut = entri.local === true || entri.local === 1;
+        node.actuatorCount = this.numOrNull(entri.actuators) ?? 0;
+      });
       (this.sensors || []).forEach(sensor => {
         const nodeId = this.numOrNull(sensor?.nodeId);
         if (nodeId === null) return;
-        let node = map.get(nodeId);
-        if (!node) {
-          node = { nodeId, sensors: [], battery: null, batteryAgeMs: null, sleepIntervalMs: null, sleepAgeMs: null, lastSeenAgeMs: null };
-          map.set(nodeId, node);
-        }
+        const node = pastikan(nodeId);
         node.sensors.push(sensor);
         const battery = this.numOrNull(sensor.battery);
         if (node.battery === null && battery !== null) node.battery = battery;
