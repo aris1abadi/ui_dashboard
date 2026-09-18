@@ -757,8 +757,9 @@
       </div>
 
       <div class="tab-panel" x-show="settingsTab === 'settings'" x-transition>
-        <!-- Alamat cloud hanya untuk web portal lokal (teknis) -->
-        <div class="form-group" x-show="isLocalPortalHost">
+        <!-- Alamat cloud hanya untuk web portal lokal (teknis) atau saat API
+             belum bisa dipakai dari origin ini (mis. di-host terpisah) -->
+        <div class="form-group" x-show="isLocalPortalHost || !cloudApiBase">
           <label>☁️ Alamat Cloud Backend (Riwayat)</label>
           <input type="text" placeholder="https://vps-anda:4000" x-model.lazy="config.cloudBaseUrl" />
           <p class="help">Biarkan kosong jika tidak pakai cloud. Untuk testing lokal: http://IP_PC:4000</p>
@@ -775,8 +776,8 @@
           </div>
         </div>
 
-        <!-- Akun Online — dashboard cloud memakai token dari backend, jadi
-             kredensial broker tidak perlu (dan tidak ditampilkan) di sini. -->
+        <!-- Akun Online — dashboard cloud memakai kredensial yang diisi lewat
+             tombol 🔑 di layar login; portal lokal boleh mengisinya di sini. -->
         <hr class="my-4 border-gray-700" />
         <p class="text-sm font-bold text-gray-300 mb-3">🌐 Akun Online</p>
         <div class="form-row" x-show="isLocalPortalHost">
@@ -785,8 +786,8 @@
           <div class="form-group"><label>Sandi</label><input type="password" x-model.lazy="config.mqtt.password" />
           </div>
         </div>
-        <p class="help" x-show="isLocalPortalHost">Dipakai hanya bila login token backend tidak aktif (cadangan teknis).</p>
-        <p class="help" x-show="!isLocalPortalHost">Masuk memakai nama pengguna &amp; sandi akun Anda — server online sudah tersimpan di aplikasi.</p>
+        <p class="help" x-show="isLocalPortalHost">Isi akun yang sama dengan yang dipakai untuk masuk ke aplikasi ini.</p>
+        <p class="help" x-show="!isLocalPortalHost">Diatur lewat tombol 🔑 di layar login (sekali saja, lalu tersimpan di aplikasi ini).</p>
 
         <!-- Pengaturan Umum — selalu tampil -->
         <hr class="my-4 border-gray-700" />
@@ -1526,11 +1527,11 @@
                     <span class="block font-bold" x-text="formatCloudValue(row.temperature) + ' °C'"></span>
                   </div>
                   <div>
-                    <span class="text-gray-500">Kelembaban</span>
+                    <span class="text-gray-500">Kelembapan Udara</span>
                     <span class="block font-bold" x-text="formatCloudValue(row.humidity) + ' %'"></span>
                   </div>
                   <div>
-                    <span class="text-gray-500">Soil</span>
+                    <span class="text-gray-500">Kelembapan Tanah</span>
                     <span class="block font-bold" x-text="formatCloudValue(row.moisture) + ' %'"></span>
                   </div>
                   <div>
@@ -1609,8 +1610,8 @@
               <template x-if="cloudHistory.greenhouse">
                 <div class="text-xs grid grid-cols-3 gap-1">
                   <span>Suhu: <span class="font-bold" x-text="formatCloudValue(cloudHistory.greenhouse.temperature) + ' °C'"></span></span>
-                  <span>Hum: <span class="font-bold" x-text="formatCloudValue(cloudHistory.greenhouse.humidity) + ' %'"></span></span>
-                  <span>Soil: <span class="font-bold" x-text="formatCloudValue(cloudHistory.greenhouse.moisture) + ' %'"></span></span>
+                  <span>Kelembapan Udara: <span class="font-bold" x-text="formatCloudValue(cloudHistory.greenhouse.humidity) + ' %'"></span></span>
+                  <span>Kelembapan Tanah: <span class="font-bold" x-text="formatCloudValue(cloudHistory.greenhouse.moisture) + ' %'"></span></span>
                   <span>Pompa: <span x-text="cloudBool(cloudHistory.greenhouse.water_on)"></span></span>
                   <span>Blower: <span x-text="cloudBool(cloudHistory.greenhouse.blower_on)"></span></span>
                   <span>Humid: <span x-text="cloudBool(cloudHistory.greenhouse.humidifier_on)"></span></span>
@@ -1632,7 +1633,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260917f"></script>
+  <script src="app.js?v=20260918a"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;

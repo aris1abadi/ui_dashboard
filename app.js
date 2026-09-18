@@ -608,9 +608,9 @@ function app() {
       registered.sort((a, b) => {
         const priority = metric => {
           const text = `${metric.label || metric.sensorLabel || ''}`.toLowerCase();
-          if (text.includes('temp') || text.includes('lm35')) return 0;
-          if (text.includes('hum')) return 1;
-          if (text.includes('soil') || text.includes('moist') || text.includes('kelembapan')) return 2;
+          if (text.includes('suhu') || text.includes('temp') || text.includes('lm35')) return 0;
+          if (text.includes('kelembapan udara') || text.includes('hum')) return 1;
+          if (text.includes('kelembapan') || text.includes('soil') || text.includes('moist')) return 2;
           const sensorType = Number(metric.sensorType);
           const valueType = Number(metric.valueType);
           if (Number.isFinite(valueType)) return 20 + valueType;
@@ -626,9 +626,9 @@ function app() {
       const registeredHasData = registered.some(metric => this.sensorLogEntries.some(entry => Number.isFinite(this.getLogMetricValue(entry, metric))));
       if (registered.length && registeredHasData) return registered;
       const fallback = [
-        { key: 'temperature', label: 'Temperature', unit: '°C' },
-        { key: 'humidity', label: 'Humidity', unit: '%' },
-        { key: 'soil', label: 'Soil Moisture', unit: '%' }
+        { key: 'temperature', label: 'Suhu Udara', unit: '°C' },
+        { key: 'humidity', label: 'Kelembapan Udara', unit: '%' },
+        { key: 'soil', label: 'Kelembapan Tanah', unit: '%' }
       ];
       // Build metrics from log entries' node:child pairs (fallback when no registered sensors)
       const sensorKeys = new Map();
@@ -833,14 +833,21 @@ function app() {
     },
     get sensorNodeIds() { return Array.from(new Set(this.sensors.map(s => s.nodeId).filter(id => Number.isFinite(id) && id > 0))); },
     get isLocalConnected() { return this.connected && this.mode === 'local'; },
-    // Token akses dari backend (pengganti sandi broker statis di klien).
-    // Dianggap tidak ada bila kosong atau hampir kedaluwarsa (1 menit lagi).
-    get activeAuthToken() {
-      const token = `${this.config?.authToken || ''}`.trim();
-      if (!token) return '';
-      const exp = Number(this.config?.authTokenExpiresAt || 0);
-      if (exp && exp * 1000 - 60000 <= Date.now()) return '';
-      return token;
+    // Basis API cloud/backend: alamat yang diisi sendiri, atau origin tempat
+    // dashboard ini disajikan (self-host: ui_dashboard + backend di server yang
+    // sama). Origin lokal/perangkat (AP, localhost) tidak dipakai supaya tidak
+    // menembak API ke perangkat.
+    get cloudApiBase() {
+      const configured = `${this.config?.cloudBaseUrl || ''}`.trim().replace(/\/$/, '');
+      if (configured) return configured;
+      const origin = `${window?.location?.origin || ''}`.replace(/\/$/, '');
+      if (!origin || !/^https?:\/\//.test(origin)) return '';
+      const host = `${window?.location?.hostname || ''}`;
+      if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]' || host.endsWith('.local')) return '';
+      // Hosting statis (GitHub Pages dsb) tidak punya API → alamat backend harus diisi manual
+      if (host.endsWith('.github.io') || host.endsWith('.pages.dev') || host.endsWith('.netlify.app') || host.endsWith('.vercel.app')) return '';
+      if (/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.test(host)) return '';
+      return origin;
     },
     get showMaintenanceTab() { return this.isLocalConnected; },
     // "Web portal lokal" = UI dibuka dari alamat lokal perangkat (mis. 192.168.4.1).
@@ -1265,6 +1272,8 @@ function app() {
       if (this.isAuthenticated) {
         this.startPreferredConnection();
       } else {
+        // Belum masuk: sambungkan dulu ke server online (memakai kredensial yang
+        // sudah tersimpan) supaya perintah login bisa dikirim ke kontroler.
         this.connectMqtt();
       }
     },
@@ -1303,14 +1312,9 @@ function app() {
           return;
         }
 
-        // 1) Ambil token akses dari backend cloud (bila dikonfigurasi).
-        //    Token inilah yang dipakai sebagai sandi MQTT — sandi broker tidak
-        //    lagi disimpan/diketik di browser. Kalau backend belum mengaktifkan
-        //    auth (503) atau tidak terjangkau, kita jatuh ke kredensial lama.
-        const backendAuth = await this.fetchBackendToken(username, password);
-        if (backendAuth?.error) throw new Error(backendAuth.error);
-
-        // 2) Pastikan MQTT tersambung (dengan token bila tersedia)
+        // Login online = alur lama: UI menyambung ke server online lalu mengirim
+        // {cmd:login, username, password} ke kontroler. Kontroler sendiri yang
+        // memutuskan kredensial itu sah atau tidak — tanpa perantara backend.
         if (!this.mqttClient?.connected) {
           this.connectionPreference = 'mqtt';
           localStorage.setItem('karjo_ui_connection_mode', this.connectionPreference);
@@ -1332,23 +1336,6 @@ function app() {
       }
     },
     logoutApplication(skipPrompt = false) {
-      // Cabut token di backend (jika dipakai) supaya tidak bisa dipakai lagi
-      const token = `${this.config?.authToken || ''}`.trim();
-      const base = `${this.config?.cloudBaseUrl || ''}`.trim().replace(/\/$/, '');
-      if (token && base) {
-        try {
-          fetch(`${base}/api/v1/auth/logout`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token }),
-            keepalive: true
-          });
-        } catch { /* abaikan: token tetap kedaluwarsa sendiri */ }
-      }
-      this.config.authToken = '';
-      this.config.authTokenExpiresAt = 0;
-      this.config.authMqttUsername = '';
-      this.saveConfig();
       this.stopKaConnections();
       this.isAuthenticated = false;
       localStorage.removeItem(loginSessionKey);
@@ -1438,45 +1425,6 @@ function app() {
       this.applyNetworkScope(parseStatusJson(data));
       return true;
     },
-    // ── Token akses dari backend cloud ──────────────────────────────────
-    // Menggantikan sandi broker MQTT statis: browser login ke backend, backend
-    // menerbitkan token berumur pendek, dan broker memverifikasi token itu
-    // (POST /api/v1/auth/mqtt + /auth/acl). Bila backend belum mengaktifkan auth
-    // atau tidak terjangkau, kembalian { skip: true } → lanjut cara lama.
-    async fetchBackendToken(username, password) {
-      const base = `${this.config?.cloudBaseUrl || ''}`.trim().replace(/\/$/, '');
-      if (!base || !username || !password) return { skip: true };
-      try {
-        const pengendali = new AbortController();
-        const tid = setTimeout(() => pengendali.abort(), 8000);
-        const res = await fetch(`${base}/api/v1/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
-          signal: pengendali.signal,
-          cache: 'no-store'
-        });
-        clearTimeout(tid);
-        let data = null;
-        try { data = await res.json(); } catch { data = null; }
-        if (res.ok && data?.token) {
-          this.config.authToken = data.token;
-          this.config.authTokenExpiresAt = Number(data.expiresAt || 0);
-          this.config.authMqttUsername = data.mqtt?.username || `ui:${username}`;
-          if (data.mqtt?.url) this.config.mqtt.url = data.mqtt.url;
-          // Sandi broker TIDAK lagi disimpan di browser
-          if (data.mqtt?.password) this.config.mqtt.password = '';
-          this.saveConfig();
-          return { ok: true };
-        }
-        if (res.status === 401) {
-          return { error: data?.error || 'Nama pengguna atau sandi salah.' };
-        }
-        return { skip: true };
-      } catch {
-        return { skip: true };
-      }
-    },
     connectMqttAndWait(timeoutMs = 12000) {
       return new Promise(resolve => {
         if (this.mqttClient?.connected) return resolve(true);
@@ -1513,12 +1461,10 @@ function app() {
         this.connected = false;
         return this.showToast('Alamat koneksi online belum diisi.', 'error');
       }
-      const mqttCredentials = this.activeAuthToken
-        ? { username: `${this.config?.authMqttUsername || 'ui'}`.trim(), password: this.activeAuthToken }
-        : {
-            username: `${this.config?.mqtt?.username || ''}`.trim(),
-            password: `${this.config?.mqtt?.password || ''}`.trim()
-          };
+      const mqttCredentials = {
+        username: `${this.config?.mqtt?.username || ''}`.trim(),
+        password: `${this.config?.mqtt?.password || ''}`.trim()
+      };
       const hasCredential = !!mqttCredentials.username && !!mqttCredentials.password;
       if (!hasCredential) {
         this.mqttCredentialPendingConnect = true;
@@ -1924,24 +1870,33 @@ function app() {
     getSensorUnit(task) { 
       if (!task) return '';
       const sensor = this.sensors.find(s => s.nodeId === task.sensorNode && s.childId === task.sensorChild); 
-      if (!sensor || !sensor.label) return ''; 
-      const label = sensor.label.toLowerCase();
-      if (label.includes('temp') || label.includes('lm35')) return '°C';
+      if (!sensor) return ''; 
+      const label = `${sensor.label || ''}`.toLowerCase();
+      // Satuan dikenali dari ISTILAH UMUM label dulu (Ketinggian Air / Tinggi
+      // Cairan / Suhu Udara / Kelembapan) baru nama teknis & tipe nilai.
+      if (label.includes('ketinggian') || label.includes('cairan') || label.includes('tangki')) return 'cm';
+      if (label.includes('suhu') || label.includes('temp') || label.includes('lm35')) return '°C';
+      if (label.includes('kelembapan') || label.includes('hum') || label.includes('moist') || label.includes('soil')) return '%';
       if (label.includes('dist') || label.includes('cm')) return 'cm';
-      if (label.includes('fuel') || label.includes('height')) return 'cm';
-      if (label.includes('hum')) return '%';
-      if (label.includes('moist') || label.includes('soil')) return '%';
       if (label.includes('volt')) return 'V';
       if (label.includes('watt')) return 'W';
       if (label.includes('amp')) return 'A';
       if (label.includes('lux') || label.includes('light')) return 'lux';
-      const match = sensor.label.match(/\(([^)]+)\)/); 
+      // Cadangan: tipe nilai sensor (V_TEMP=1, V_PERCENTAGE=3, V_DISTANCE=13).
+      const valueType = Number(sensor.valueType);
+      if (valueType === 1) return '°C';
+      if (valueType === 3) return '%';
+      if (valueType === 13) return 'cm';
+      const match = `${sensor.label || ''}`.match(/\(([^)]+)\)/); 
       return match ? match[1] : ''; 
     },
     isMoistureSensor(sensor) {
       if (!sensor) return false;
       const label = `${sensor.label || ''}`.toLowerCase();
-      if (label.includes('moist') || label.includes('soil') || label.includes('kelembapan')) return true;
+      // "Kelembapan Udara" (DHT22) BUKAN sensor kelembapan tanah — cek lebih dulu.
+      if (label.includes('kelembapan udara') || label.includes('humid')) return false;
+      // Istilah umum: "Kelembapan Tanah" (dulu "Soil Moisture"/"Capacitive moisture").
+      if (label.includes('kelembapan') || label.includes('moist') || label.includes('soil')) return true;
       return sensor.valueType === 3 || sensor.sensorType === 23;
     },
     getMoistureCalibrationSensor() {
@@ -2103,13 +2058,16 @@ function app() {
     isDistanceSensor(sensor) {
       if (!sensor) return false;
       const label = `${sensor.label || ''}`.toLowerCase();
-      if (label.includes('distance') || label.includes('hcsr04')) return true;
+      // "Ketinggian Air" = istilah umum (label lama: "HC-SR04 distance"/"VL53L0X distance").
+      if (label.includes('ketinggian') || label.includes('distance') || label.includes('hcsr04')) return true;
       return sensor.valueType === 13 || sensor.sensorType === 15;
     },
     isFuelHeightSensor(sensor) {
       if (!sensor) return false;
       const label = `${sensor.label || ''}`.toLowerCase();
-      return label.includes('fuel') || label.includes('fuel height');
+      // "Tinggi Cairan" = istilah umum (label lama: "Fuel height"). Sensor ini
+      // juga mengirim V_DISTANCE, jadi SELALU dicek lebih dulu dari jarak air.
+      return label.includes('cairan') || label.includes('tangki') || label.includes('fuel');
     },
     getDistanceCalibrationSensor() {
       const nodeId = Number(this.distanceCalibration?.nodeId);
@@ -3513,12 +3471,12 @@ function app() {
     },
     getLogMetricLabel(key) {
       const labels = {
-        temperature: 'Temperature',
-        humidity: 'Humidity',
-        soil: 'Soil Moisture',
-        moisture: 'Soil Moisture',
-        temp: 'Temperature',
-        hum: 'Humidity'
+        temperature: 'Suhu Udara',
+        humidity: 'Kelembapan Udara',
+        soil: 'Kelembapan Tanah',
+        moisture: 'Kelembapan Tanah',
+        temp: 'Suhu Udara',
+        hum: 'Kelembapan Udara'
       };
       return labels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     },
@@ -4104,10 +4062,10 @@ function app() {
     cloudDataCount: 0,
 
     get cloudBase() {
-      return this.config.cloudBaseUrl || '';
+      return this.cloudApiBase;
     },
     get cloudEnabled() {
-      return !!this.cloudBase && this.cloudBase.startsWith('http');
+      return !!this.cloudApiBase;
     },
     get cloudKontrolId() {
       return this.mqttKontrolId || this.login.kontrolId || this.config.mqtt.kontrolId;
