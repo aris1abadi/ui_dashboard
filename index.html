@@ -761,12 +761,17 @@
       </div>
 
       <div class="tab-panel" x-show="settingsTab === 'settings'" x-transition>
-        <!-- Alamat cloud hanya untuk web portal lokal (teknis) atau saat API
-             belum bisa dipakai dari origin ini (mis. di-host terpisah) -->
+        <!-- Riwayat & grafik dibaca dari karjoAgroSensorHub (bukan backend lama).
+             Disembunyikan di dashboard cloud publik; tampil untuk portal lokal
+             (teknis) atau bila alamat belum terisi. -->
         <div class="form-group" x-show="isLocalPortalHost || !cloudApiBase">
-          <label>☁️ Alamat Cloud Backend (Riwayat)</label>
-          <input type="text" placeholder="https://vps-anda:4000" x-model.lazy="config.cloudBaseUrl" />
-          <p class="help">Biarkan kosong jika tidak pakai cloud. Untuk testing lokal: http://IP_PC:4000</p>
+          <label>📈 Server SensorHub (Riwayat &amp; Grafik)</label>
+          <input type="text" placeholder="https://iot.karjoagro.my.id" x-model.lazy="config.cloudBaseUrl" />
+          <label class="mt-3 block">Token Baca</label>
+          <input type="password" placeholder="token dari deploy.env (SENSORHUB_READ_TOKEN)"
+            x-model.lazy="config.cloudReadToken" autocomplete="off" />
+          <p class="help">Data node sensor disimpan SensorHub per SERIAL NUMBER node (SN-XXXX). Isi token
+            agar grafik bisa dibaca; lihat <b>deploy.env</b> → <b>SENSORHUB_READ_TOKEN</b>.</p>
         </div>
 
         <!-- Koneksi Lokal — hanya saat mode lokal atau offline -->
@@ -1553,35 +1558,35 @@
     </div>
   </div>
 
-  <!-- === Modal Riwayat Cloud === -->
+  <!-- === Modal Riwayat Sensor (grafik dari karjoAgroSensorHub) === -->
   <div x-show="showCloudModal" x-transition class="modal" role="dialog" aria-modal="true"
     @click.self="closeCloudHistory()" @keydown.escape.window="closeCloudHistory()">
     <div class="modal-card cloud-modal" style="max-width: 640px;">
       <div class="modal-header">
         <div>
-          <h3 class="text-lg font-bold">☁️ Riwayat Cloud</h3>
-          <p class="text-xs text-gray-400" x-text="cloudKontrolId"></p>
+          <h3 class="text-lg font-bold">📈 Riwayat Sensor</h3>
+          <p class="text-xs text-gray-400"
+            x-text="sensorhubNode ? (sensorhubNode.sn + ' • ' + sensorhubNode.name) : 'karjoAgroSensorHub'"></p>
         </div>
         <div class="flex items-center gap-2">
-          <button @click="fetchCloudData()" class="btn ghost small" :disabled="cloudHistoryLoading"
-            title="Muat Ulang">🔄</button>
+          <button @click="loadSensorHubNodes().then(() => fetchCloudData())" class="btn ghost small"
+            :disabled="cloudHistoryLoading" title="Muat Ulang">🔄</button>
           <button @click="closeCloudHistory()" class="modal-close">×</button>
         </div>
       </div>
       <div class="modal-body">
-        <!-- Tab navigasi -->
-        <div class="flex gap-2 mb-4 flex-wrap">
-          <button class="btn small" :class="cloudActiveTab === 'greenhouse' ? 'primary' : 'ghost'"
-            @click="cloudActiveTab='greenhouse'; fetchCloudData()">Greenhouse</button>
-          <button class="btn small" :class="cloudActiveTab === 'sensors' ? 'primary' : 'ghost'"
-            @click="cloudActiveTab='sensors'; fetchCloudData()">Sensor</button>
-          <button class="btn small" :class="cloudActiveTab === 'actuators' ? 'primary' : 'ghost'"
-            @click="cloudActiveTab='actuators'; fetchCloudData()">Aktuator</button>
-          <button class="btn small" :class="cloudActiveTab === 'summary' ? 'primary' : 'ghost'"
-            @click="cloudActiveTab='summary'; fetchCloudData()">Ringkasan</button>
+        <!-- Identitas data = SERIAL NUMBER node sensor (SN-XXXX) -->
+        <div class="form-group">
+          <label>Node Sensor</label>
+          <select x-model="sensorhubSn" @change="sensorhubFields = []; fetchCloudData()">
+            <template x-for="n in sensorhubNodes" :key="n.sn">
+              <option :value="n.sn" x-text="`${n.sn} — ${n.name}`"></option>
+            </template>
+          </select>
         </div>
-        <!-- Rentang waktu (hanya untuk greenhouse) -->
-        <div class="flex gap-2 mb-4 flex-wrap" x-show="cloudActiveTab === 'greenhouse'">
+
+        <!-- Rentang waktu -->
+        <div class="flex gap-2 mb-4 flex-wrap">
           <button class="btn small" :class="cloudDateRange === '1h' ? 'primary' : 'ghost'"
             @click="cloudDateRange='1h'; fetchCloudData()">1 Jam</button>
           <button class="btn small" :class="cloudDateRange === '6h' ? 'primary' : 'ghost'"
@@ -1594,6 +1599,14 @@
             @click="cloudDateRange='30d'; fetchCloudData()">30 Hari</button>
         </div>
 
+        <!-- Pilih kolom yang digrafikkan -->
+        <div class="flex gap-2 mb-4 flex-wrap" x-show="sensorhubFieldList.length">
+          <template x-for="(f, i) in sensorhubFieldList" :key="f.key">
+            <button class="btn small" :class="sensorhubFieldSelected(f.name) ? 'primary' : 'ghost'"
+              @click="toggleSensorhubField(f.name)" x-text="f.name"></button>
+          </template>
+        </div>
+
         <!-- Loading -->
         <div class="text-center py-8" x-show="cloudHistoryLoading">
           <span class="text-gray-400">Memuat data...</span>
@@ -1602,118 +1615,64 @@
         <!-- Error -->
         <div class="text-center py-4" x-show="!cloudHistoryLoading && cloudHistoryError">
           <p class="text-red-400 text-sm">⚠️ <span x-text="cloudHistoryError"></span></p>
-          <p class="text-xs text-gray-500 mt-2">Pastikan alamat Cloud Backend sudah benar di Pengaturan → Koneksi.</p>
+          <p class="text-xs text-gray-500 mt-2">Atur alamat Server SensorHub + token baca di Pengaturan → Koneksi.</p>
         </div>
 
-        <!-- Greenhouse data -->
-        <div x-show="!cloudHistoryLoading && !cloudHistoryError && cloudActiveTab === 'greenhouse'">
-          <p class="text-xs text-gray-500 mb-2" x-text="cloudDataCount + ' data'"></p>
-          <div class="space-y-2 max-h-96 overflow-y-auto">
-            <template x-for="(row, i) in cloudHistory" :key="i">
-              <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30] text-xs">
-                <div class="flex justify-between text-gray-400 mb-1">
-                  <span x-text="formatCloudTime(row.recorded_at)"></span>
-                </div>
-                <div class="grid grid-cols-3 gap-2">
-                  <div>
-                    <span class="text-gray-500">Suhu</span>
-                    <span class="block font-bold" x-text="formatCloudValue(row.temperature) + ' °C'"></span>
-                  </div>
-                  <div>
-                    <span class="text-gray-500">Kelembapan Udara</span>
-                    <span class="block font-bold" x-text="formatCloudValue(row.humidity) + ' %'"></span>
-                  </div>
-                  <div>
-                    <span class="text-gray-500">Kelembapan Tanah</span>
-                    <span class="block font-bold" x-text="formatCloudValue(row.moisture) + ' %'"></span>
-                  </div>
-                  <div>
-                    <span class="text-gray-500">Pompa</span>
-                    <span class="block font-bold" x-text="cloudBool(row.water_on)"></span>
-                  </div>
-                  <div>
-                    <span class="text-gray-500">Blower</span>
-                    <span class="block font-bold" x-text="cloudBool(row.blower_on)"></span>
-                  </div>
-                  <div>
-                    <span class="text-gray-500">Humidifier</span>
-                    <span class="block font-bold" x-text="cloudBool(row.humidifier_on)"></span>
-                  </div>
-                </div>
-              </div>
-            </template>
-            <p class="text-center text-gray-500 py-4" x-show="cloudHistory.length === 0">Belum ada data.</p>
-          </div>
-        </div>
-
-        <!-- Sensor latest -->
-        <div x-show="!cloudHistoryLoading && !cloudHistoryError && cloudActiveTab === 'sensors'">
-          <div class="space-y-2 max-h-96 overflow-y-auto">
-            <template x-for="(s, i) in cloudHistory" :key="i">
-              <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30] text-xs">
-                <div class="flex justify-between">
-                  <span class="font-bold" x-text="s.label || ('Node ' + s.node_id + ':' + s.child_id)"></span>
-                  <span class="text-gray-400" x-text="formatCloudTime(s.recorded_at)"></span>
-                </div>
-                <div class="mt-1 grid grid-cols-2 gap-1">
-                  <span>Nilai: <span class="font-bold" x-text="formatCloudValue(s.value)"></span></span>
-                  <span>Nilai Sensor: <span x-text="formatCloudValue(s.raw_value)"></span></span>
-                  <span x-show="s.battery !== null">Baterai: <span x-text="s.battery + '%'"></span></span>
-                </div>
-              </div>
-            </template>
-            <p class="text-center text-gray-500 py-4" x-show="cloudHistory.length === 0">Belum ada data sensor.</p>
-          </div>
-        </div>
-
-        <!-- Actuator latest -->
-        <div x-show="!cloudHistoryLoading && !cloudHistoryError && cloudActiveTab === 'actuators'">
-          <div class="space-y-2 max-h-96 overflow-y-auto">
-            <template x-for="(a, i) in cloudHistory" :key="i">
-              <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30] text-xs">
-                <div class="flex justify-between">
-                  <span class="font-bold" x-text="a.label || ('Aktuator ' + a.actuator_index)"></span>
-                  <span class="text-gray-400" x-text="formatCloudTime(a.recorded_at)"></span>
-                </div>
-                <div class="mt-1 grid grid-cols-3 gap-1">
-                  <span>Aktif: <span class="font-bold" :class="a.active ? 'text-green-400' : 'text-gray-400'"
-                    x-text="cloudBool(a.active)"></span></span>
-                  <span>Online: <span x-text="cloudBool(a.online)"></span></span>
-                </div>
-              </div>
-            </template>
-            <p class="text-center text-gray-500 py-4" x-show="cloudHistory.length === 0">Belum ada data aktuator.</p>
-          </div>
-        </div>
-
-        <!-- Summary -->
-        <div x-show="!cloudHistoryLoading && !cloudHistoryError && cloudActiveTab === 'summary'">
-          <div class="space-y-4" x-show="cloudHistory">
-            <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30]">
-              <h4 class="text-sm font-bold mb-2">📊 Status</h4>
-              <div class="text-xs grid grid-cols-2 gap-1">
-                <span>State: <span class="font-bold" x-text="cloudHistory.status?.state || '-'"></span></span>
-                <span>IP: <span x-text="cloudHistory.status?.ip || '-'"></span></span>
-                <span>Node: <span x-text="cloudHistory.status?.node_count || '-'"></span></span>
-                <span>Task: <span x-text="cloudHistory.status?.task_count || '-'"></span></span>
-              </div>
+        <!-- Grafik + nilai terakhir -->
+        <div x-show="!cloudHistoryLoading && !cloudHistoryError">
+          <div class="bg-[#16161a] border border-[#2a2a30] rounded-xl p-3 mb-3">
+            <!-- Catatan: TIDAK memakai <template x-for> di dalam <svg> karena
+                 parser HTML saat build (Vite) gagal mem-parse elemen SVG +
+                 template. Cukup 4 polyline (batas kolom grafik = 4). -->
+            <svg viewBox="0 0 100 40" preserveAspectRatio="none"
+              style="width:100%;height:180px;display:block;overflow:visible;">
+              <polyline x-show="sensorhubChartFields[0]" :points="sensorhubChartPath(sensorhubChartFields[0])"
+                fill="none" :stroke="sensorhubColor(0)" stroke-width="1.4" stroke-linejoin="round"
+                stroke-linecap="round" vector-effect="non-scaling-stroke" />
+              <polyline x-show="sensorhubChartFields[1]" :points="sensorhubChartPath(sensorhubChartFields[1])"
+                fill="none" :stroke="sensorhubColor(1)" stroke-width="1.4" stroke-linejoin="round"
+                stroke-linecap="round" vector-effect="non-scaling-stroke" />
+              <polyline x-show="sensorhubChartFields[2]" :points="sensorhubChartPath(sensorhubChartFields[2])"
+                fill="none" :stroke="sensorhubColor(2)" stroke-width="1.4" stroke-linejoin="round"
+                stroke-linecap="round" vector-effect="non-scaling-stroke" />
+              <polyline x-show="sensorhubChartFields[3]" :points="sensorhubChartPath(sensorhubChartFields[3])"
+                fill="none" :stroke="sensorhubColor(3)" stroke-width="1.4" stroke-linejoin="round"
+                stroke-linecap="round" vector-effect="non-scaling-stroke" />
+            </svg>
+            <div class="flex justify-between text-[10px] text-gray-500 mt-2 uppercase tracking-widest">
+              <span x-text="'min ' + sensorhubChartRange().min"></span>
+              <span x-text="cloudDataCount + ' titik'"></span>
+              <span x-text="'max ' + sensorhubChartRange().max"></span>
             </div>
-            <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30]">
-              <h4 class="text-sm font-bold mb-2">🌡️ Greenhouse</h4>
-              <template x-if="cloudHistory.greenhouse">
-                <div class="text-xs grid grid-cols-3 gap-1">
-                  <span>Suhu: <span class="font-bold" x-text="formatCloudValue(cloudHistory.greenhouse.temperature) + ' °C'"></span></span>
-                  <span>Kelembapan Udara: <span class="font-bold" x-text="formatCloudValue(cloudHistory.greenhouse.humidity) + ' %'"></span></span>
-                  <span>Kelembapan Tanah: <span class="font-bold" x-text="formatCloudValue(cloudHistory.greenhouse.moisture) + ' %'"></span></span>
-                  <span>Pompa: <span x-text="cloudBool(cloudHistory.greenhouse.water_on)"></span></span>
-                  <span>Blower: <span x-text="cloudBool(cloudHistory.greenhouse.blower_on)"></span></span>
-                  <span>Humid: <span x-text="cloudBool(cloudHistory.greenhouse.humidifier_on)"></span></span>
+          </div>
+
+          <div class="flex gap-3 flex-wrap mb-3">
+            <template x-for="(f, i) in sensorhubChartFields" :key="'leg-' + f">
+              <span class="text-xs flex items-center gap-2">
+                <span class="inline-block h-2 w-4 rounded-full" :style="`background:${sensorhubColor(i)}`"></span>
+                <span x-text="f"></span>
+              </span>
+            </template>
+          </div>
+
+          <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30] text-xs">
+            <h4 class="text-sm font-bold mb-2">Nilai Terakhir</h4>
+            <div class="grid grid-cols-2 gap-2">
+              <template x-for="(v, k) in sensorhubLatest" :key="'last-' + k">
+                <div>
+                  <span class="text-gray-500" x-text="k"></span>
+                  <span class="block font-bold" x-text="formatCloudValue(v)"></span>
                 </div>
               </template>
-              <p class="text-xs text-gray-500" x-show="!cloudHistory.greenhouse">Belum ada data greenhouse.</p>
             </div>
+            <p class="text-gray-500" x-show="!Object.keys(sensorhubLatest).length">Belum ada data pada rentang ini.</p>
           </div>
+
+          <p class="text-xs text-gray-500 mt-3" x-show="!cloudHistoryLoading && cloudDataCount === 0">
+            Belum ada data untuk node ini pada rentang waktu terpilih.
+          </p>
         </div>
+
       </div>
       <div class="modal-footer">
         <button @click="closeCloudHistory()" class="btn ghost">Tutup</button>
@@ -1745,7 +1704,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260918k"></script>
+  <script src="app.js?v=20260918l"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;

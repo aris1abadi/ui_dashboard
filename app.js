@@ -15,7 +15,8 @@ const defaults = {
   uiId: '',
   kontrolIds: ['KA-0000'],
   kontrolAliases: {},
-  cloudBaseUrl: '',
+  cloudBaseUrl: 'https://iot.karjoagro.my.id',
+  cloudReadToken: '',
   mqtt: {
     url: defaultMqttUrl,
     username: '',
@@ -1027,6 +1028,7 @@ function app() {
         kontrolIds, 
         kontrolAliases: parsed.kontrolAliases || {},
         cloudBaseUrl: `${parsed.cloudBaseUrl || ''}`.trim() || defaults.cloudBaseUrl,
+        cloudReadToken: `${parsed.cloudReadToken || ''}`.trim(),
         mqtt: {
           ...defaults.mqtt,
           ...parsedMqtt,
@@ -4328,74 +4330,204 @@ function app() {
       this.closeSensorInterval();
     },
 
-    // ─── Cloud / Riwayat ───
+    // ─── Riwayat & grafik dari karjoAgroSensorHub ───
+    // Data node sensor disimpan SensorHub (1 node = 1 channel, kunci SERIAL
+    // NODE `SN-XXXX`). Dashboard hanya membaca lewat /api/series dengan token.
     showCloudModal: false,
     cloudHistory: [],
     cloudHistoryLoading: false,
     cloudHistoryError: '',
-    cloudActiveTab: 'greenhouse',
     cloudDateRange: '24h',
     cloudDataCount: 0,
+    // Daftar node (serial) yang punya data di SensorHub.
+    sensorhubNodes: [],
+    sensorhubSn: '',
+    sensorhubFields: [],
+    sensorhubSeries: [],
+    sensorhubLatest: {},
+    sensorhubLatestAt: {},
 
     get cloudBase() {
-      return this.cloudApiBase;
+      return `${this.config?.cloudBaseUrl || ''}`.trim().replace(/\/+$/, '');
     },
     get cloudEnabled() {
-      return !!this.cloudApiBase;
+      return !!this.cloudBase;
+    },
+    get cloudToken() {
+      return `${this.config?.cloudReadToken || ''}`.trim();
+    },
+    get sensorhubNode() {
+      return this.sensorhubNodes.find((n) => n.sn === this.sensorhubSn) || null;
+    },
+    get sensorhubFieldList() {
+      return this.sensorhubNode?.fields || [];
+    },
+    // Kolom yang dicentang di grafik (bisa lebih dari satu).
+    sensorhubFieldSelected(name) {
+      return this.sensorhubFields.includes(name);
+    },
+    toggleSensorhubField(name) {
+      if (this.sensorhubFields.includes(name)) {
+        this.sensorhubFields = this.sensorhubFields.filter((n) => n !== name);
+      } else {
+        this.sensorhubFields = [...this.sensorhubFields, name];
+      }
+      this.fetchCloudData();
+    },
+    sensorhubColor(index) {
+      const palette = ['#25f4b8', '#4aa3ff', '#ffb84a', '#ff6b9d', '#a78bfa', '#7dd3fc'];
+      return palette[index % palette.length];
     },
     get cloudKontrolId() {
       return this.mqttKontrolId || this.login.kontrolId || this.config.mqtt.kontrolId;
     },
 
-    openCloudHistory() {
+    async openCloudHistory() {
       this.showCloudModal = true;
-      this.cloudActiveTab = 'greenhouse';
-      this.cloudDateRange = '24h';
-      this.fetchCloudData();
+      this.cloudHistoryError = '';
+      await this.loadSensorHubNodes();
+      this.cloudDateRange = this.cloudDateRange || '24h';
+      await this.fetchCloudData();
     },
     closeCloudHistory() {
       this.showCloudModal = false;
       this.cloudHistory = [];
+      this.sensorhubSeries = [];
       this.cloudHistoryError = '';
     },
 
+    // Daftar node yang punya data di SensorHub (GET /api/series/nodes).
+    async loadSensorHubNodes() {
+      if (!this.cloudEnabled) {
+        this.cloudHistoryError = 'Alamat Server SensorHub belum diisi (Pengaturan → Koneksi).';
+        return;
+      }
+      try {
+        const url = `${this.cloudBase}/api/series/nodes?token=${encodeURIComponent(this.cloudToken)}`;
+        const resp = await fetch(url, { cache: 'no-store' });
+        const json = await resp.json();
+        if (!json.ok) throw new Error('Gagal memuat daftar node');
+        this.sensorhubNodes = json.nodes || [];
+
+        // Prioritas: SN yang memang ada di payload sensor terkini (node yang
+        // sedang terhubung), lalu SN pertama yang tersedia.
+        const snDiUi = [...new Set((this.sensors || []).map((s) => s.sn).filter(Boolean))];
+        if (!this.sensorhubSn || !this.sensorhubNodes.some((n) => n.sn === this.sensorhubSn)) {
+          const cocok = this.sensorhubNodes.find((n) => snDiUi.includes(n.sn));
+          this.sensorhubSn = (cocok || this.sensorhubNodes[0])?.sn || '';
+        }
+      } catch (err) {
+        this.sensorhubNodes = [];
+        this.cloudHistoryError = err.message || 'Gagal terhubung ke SensorHub';
+      }
+    },
+
     async fetchCloudData() {
-      if (!this.cloudEnabled) return;
+      if (!this.cloudEnabled || !this.sensorhubSn) {
+        this.sensorhubSeries = [];
+        this.cloudHistory = [];
+        return;
+      }
       this.cloudHistoryLoading = true;
       this.cloudHistoryError = '';
-      const base = this.cloudBase.replace(/\/+$/, '');
-      const kid = this.cloudKontrolId;
-      const since = this.cloudDateRange === 'all' ? '' : new Date(Date.now() - {
+      const since = new Date(Date.now() - ({
         '1h': 3600000,
         '6h': 21600000,
         '24h': 86400000,
         '7d': 604800000,
         '30d': 2592000000,
-      }[this.cloudDateRange] || 86400000).toISOString();
+      }[this.cloudDateRange] || 86400000)).toISOString();
+
+      const token = encodeURIComponent(this.cloudToken);
+      const sn = encodeURIComponent(this.sensorhubSn);
+      const fields = this.sensorhubFields.map((f) => encodeURIComponent(f)).join(',');
 
       try {
-        let url;
-        if (this.cloudActiveTab === 'greenhouse') {
-          url = `${base}/api/v1/devices/${kid}/greenhouse?limit=100`;
-          if (since) url += `&since=${encodeURIComponent(since)}`;
-        } else if (this.cloudActiveTab === 'sensors') {
-          url = `${base}/api/v1/devices/${kid}/sensors/latest`;
-        } else if (this.cloudActiveTab === 'actuators') {
-          url = `${base}/api/v1/devices/${kid}/actuators/latest`;
-        } else if (this.cloudActiveTab === 'summary') {
-          url = `${base}/api/v1/summary/${kid}`;
+        const urlSeries =
+          `${this.cloudBase}/api/series?sn=${sn}&since=${encodeURIComponent(since)}` +
+          `&limit=1500&token=${token}` +
+          (fields ? `&field=${fields}` : '');
+        const urlLatest = `${this.cloudBase}/api/series/latest?sn=${sn}&token=${token}`;
+
+        const [seriesResp, latestResp] = await Promise.all([
+          fetch(urlSeries, { cache: 'no-store' }),
+          fetch(urlLatest, { cache: 'no-store' }),
+        ]);
+        const series = await seriesResp.json();
+        const latest = await latestResp.json();
+        if (!series.ok) throw new Error(series.detail || 'Gagal memuat data SensorHub');
+
+        // Bila belum ada kolom yang dipilih → pakai 3 kolom pertama node ini.
+        if (!this.sensorhubFields.length && this.sensorhubFieldList.length) {
+          this.sensorhubFields = this.sensorhubFieldList.slice(0, 3).map((f) => f.name);
         }
-        const resp = await fetch(url);
-        const json = await resp.json();
-        if (!json.ok) throw new Error(json.error || 'Gagal memuat data');
-        this.cloudHistory = json.data || json;
-        this.cloudDataCount = json.count || (Array.isArray(json) ? json.length : 1);
+
+        this.sensorhubSeries = series.data || [];
+        this.cloudHistory = this.sensorhubSeries;
+        this.cloudDataCount = series.count || this.sensorhubSeries.length;
+        this.sensorhubLatest = latest.ok ? latest.latest || {} : {};
+        this.sensorhubLatestAt = latest.ok ? latest.at || {} : {};
       } catch (err) {
-        this.cloudHistoryError = err.message || 'Gagal terhubung ke cloud backend';
+        this.cloudHistoryError = err.message || 'Gagal terhubung ke SensorHub';
+        this.sensorhubSeries = [];
         this.cloudHistory = [];
+        this.sensorhubLatest = {};
       } finally {
         this.cloudHistoryLoading = false;
       }
+    },
+
+    // Kolom yang benar-benar digambar (hanya yang ada nilainya).
+    get sensorhubChartFields() {
+      const series = this.sensorhubSeries || [];
+      const dipilih = this.sensorhubFields.length
+        ? this.sensorhubFields
+        : [...new Set(series.flatMap((row) => Object.keys(row).filter((k) => k !== 'ts')))];
+      const dipakai = dipilih.filter((name) => series.some((row) => typeof row[name] === 'number'));
+      return (dipakai.length ? dipakai : dipilih).slice(0, 4);
+    },
+
+    // Path SVG (viewBox 0 0 100 40) untuk satu kolom.
+    sensorhubChartPath(name) {
+      const series = this.sensorhubSeries || [];
+      if (!series.length) return '';
+      const semua = [];
+      this.sensorhubChartFields.forEach((f) => {
+        series.forEach((row) => {
+          const v = Number(row[f]);
+          if (Number.isFinite(v)) semua.push(v);
+        });
+      });
+      let min = Math.min(...semua);
+      let max = Math.max(...semua);
+      if (!Number.isFinite(min) || !Number.isFinite(max)) return '';
+      if (max - min < 0.0001) {
+        max += 1;
+        min -= 1;
+      }
+      const titik = [];
+      series.forEach((row, i) => {
+        const v = Number(row[name]);
+        if (!Number.isFinite(v)) return;
+        const x = series.length === 1 ? 50 : (i / (series.length - 1)) * 100;
+        const y = 38 - ((v - min) / (max - min)) * 36;
+        titik.push(`${x.toFixed(2)},${y.toFixed(2)}`);
+      });
+      return titik.join(' ');
+    },
+    sensorhubChartRange() {
+      const series = this.sensorhubSeries || [];
+      const nilai = [];
+      this.sensorhubChartFields.forEach((f) => {
+        series.forEach((row) => {
+          const v = Number(row[f]);
+          if (Number.isFinite(v)) nilai.push(v);
+        });
+      });
+      if (!nilai.length) return { min: '-', max: '-' };
+      const min = Math.min(...nilai);
+      const max = Math.max(...nilai);
+      return { min: min.toFixed(1), max: max.toFixed(1) };
     },
 
     formatCloudTime(iso) {
