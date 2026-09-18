@@ -2682,3 +2682,40 @@ input[type="range"] {
 .gh-root {
   /* Placeholder for greenhouse styles */
 }
+
+/* ── Baris pilihan (radio/checkbox): bulatan/centang di DEPAN, keterangan di
+   belakangnya. Selector dibuat kuat karena di dalam .form-group label bersifat
+   block dan .form-group input lebarnya 100% — dulu itu membuat kotak pilihan
+   tampil di ATAS keterangannya. ────────────────────────────────────────── */
+label.checkbox-row,
+.form-group label.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #e6e6e9;
+  cursor: pointer;
+}
+
+label.checkbox-row > span {
+  line-height: 1.35;
+}
+
+label.checkbox-row input[type="checkbox"],
+label.checkbox-row input[type="radio"],
+.form-group label.checkbox-row input[type="checkbox"],
+.form-group label.checkbox-row input[type="radio"] {
+  width: 1.05rem;
+  height: 1.05rem;
+  min-width: 1.05rem;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
