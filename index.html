@@ -797,9 +797,13 @@
         <hr class="my-4 border-gray-700" />
         <p class="text-sm font-bold text-gray-300 mb-3">⚙️ Pengaturan Umum</p>
         <div class="form-group">
-          <label>Durasi Manual (menit): <span x-text="Math.round(config.manualDurationMs / 60000)"></span></label>
-          <input type="range" min="1" max="60" step="1" :value="Math.round(config.manualDurationMs / 60000)"
-            @input="config.manualDurationMs = $event.target.value * 60000" />
+          <label>Durasi Manual: <span x-text="formatDurasiManual(config.manualDurationMs)"></span></label>
+          <input type="range" min="1" max="6" step="0.5" :value="config.manualDurationMs / 3600000"
+            @input="config.manualDurationMs = Math.round($event.target.value * 3600000)" />
+          <div class="flex justify-between text-[10px] text-gray-600 mt-1 uppercase tracking-widest">
+            <span>1 jam</span>
+            <span>6 jam</span>
+          </div>
         </div>
       </div>
 
@@ -1130,17 +1134,27 @@
             </div>
           </div>
           <div class="form-group">
-            <label>Durasi (menit): <span x-text="editingTask.durationMinutes"></span></label>
-            <input type="range" min="1" max="60" step="1" x-model.number="editingTask.durationMinutes" />
+            <label>Durasi: <span x-text="formatDurasiMenit(editingTask.durationMinutes)"></span></label>
+            <input type="range" min="1" max="360" step="1" x-model.number="editingTask.durationMinutes" />
+            <div class="flex justify-between text-[10px] text-gray-600 mt-1 uppercase tracking-widest">
+              <span>1 menit</span>
+              <span>360 menit (6 jam)</span>
+            </div>
           </div>
         </div>
         <div class="form-group">
           <label>Otomasi menyala saat nilai sensor</label>
-          <div class="flex flex-wrap items-center gap-2">
-            <button type="button" class="btn ghost small" :class="{ 'active': !thresholdAboveActive }"
-              @click="setThresholdDirection(false)">Di bawah ambang</button>
-            <button type="button" class="btn ghost small" :class="{ 'active': thresholdAboveActive }"
-              @click="setThresholdDirection(true)">Di atas ambang</button>
+          <div class="flex flex-col gap-2">
+            <label class="checkbox-row">
+              <input type="radio" name="arahAmbangRingkas" :checked="!thresholdAboveActive"
+                @change="setThresholdDirection(false)" />
+              <span>Di bawah ambang — ON saat nilai <b>≤</b> ambang</span>
+            </label>
+            <label class="checkbox-row">
+              <input type="radio" name="arahAmbangRingkas" :checked="thresholdAboveActive"
+                @change="setThresholdDirection(true)" />
+              <span>Di atas ambang — ON saat nilai <b>≥</b> ambang</span>
+            </label>
           </div>
           <p class="help" x-text="thresholdDirectionHint"></p>
         </div>
@@ -1402,15 +1416,15 @@
 
                 <div class="form-group mb-0">
                   <div class="flex justify-between items-center mb-4">
-                    <label class="text-sm font-semibold text-gray-400">Durasi (Menit)</label>
+                    <label class="text-sm font-semibold text-gray-400">Durasi</label>
                     <span class="bg-white/10 text-white px-3 py-1 rounded-lg font-bold text-sm"
-                      x-text="`${editingTask.durationMinutes} m`"></span>
+                      x-text="formatDurasiMenit(editingTask.durationMinutes)"></span>
                   </div>
-                  <input type="range" min="1" max="60" step="1" x-model.number="editingTask.durationMinutes"
+                  <input type="range" min="1" max="360" step="1" x-model.number="editingTask.durationMinutes"
                     class="w-full accent-white" />
                   <div class="flex justify-between text-[10px] text-gray-600 mt-2 uppercase tracking-widest">
-                    <span>1 m</span>
-                    <span>60 m</span>
+                    <span>1 menit</span>
+                    <span>360 menit (6 jam)</span>
                   </div>
                 </div>
               </div>
@@ -1418,11 +1432,19 @@
               <div class="space-y-8 bg-black/20 p-6 rounded-2xl border border-white/5">
                 <div class="form-group mb-0">
                   <label class="text-sm font-semibold text-gray-400 mb-2 block">Otomasi menyala saat nilai sensor</label>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <button type="button" class="btn ghost small" :class="{ 'active': !thresholdAboveActive }"
-                      @click="setThresholdDirection(false)">Di bawah ambang</button>
-                    <button type="button" class="btn ghost small" :class="{ 'active': thresholdAboveActive }"
-                      @click="setThresholdDirection(true)">Di atas ambang</button>
+                  <div class="space-y-2">
+                    <label
+                      class="flex items-center gap-3 p-3 bg-[#202026] rounded-xl border border-[#2a2a30] cursor-pointer hover:bg-[#25252c] transition-colors">
+                      <input type="radio" name="arahAmbangLengkap" class="w-5 h-5 accent-primary"
+                        :checked="!thresholdAboveActive" @change="setThresholdDirection(false)" />
+                      <span class="text-sm font-semibold text-gray-200">Di bawah ambang — ON saat nilai ≤ ambang</span>
+                    </label>
+                    <label
+                      class="flex items-center gap-3 p-3 bg-[#202026] rounded-xl border border-[#2a2a30] cursor-pointer hover:bg-[#25252c] transition-colors">
+                      <input type="radio" name="arahAmbangLengkap" class="w-5 h-5 accent-primary"
+                        :checked="thresholdAboveActive" @change="setThresholdDirection(true)" />
+                      <span class="text-sm font-semibold text-gray-200">Di atas ambang — ON saat nilai ≥ ambang</span>
+                    </label>
                   </div>
                   <p class="help mt-2" x-text="thresholdDirectionHint"></p>
                 </div>
@@ -1497,9 +1519,9 @@
             </select>
           </div>
         </div>
-        <div class="form-group"><label>Durasi (menit): <span
-              x-text="editingSchedule.durationMinutes"></span></label><input type="range" min="1" max="60" step="1"
-            x-model.number="editingSchedule.durationMinutes" /></div>
+        <div class="form-group"><label>Durasi: <span
+              x-text="formatDurasiMenit(editingSchedule.durationMinutes)"></span></label><input type="range" min="1" max="360"
+            step="1" x-model.number="editingSchedule.durationMinutes" /></div>
         <label class="checkbox-row"><input type="checkbox" x-model="editingSchedule.enabled" /> Aktif</label>
       </div>
       <div class="modal-footer" x-show="editingSchedule">
@@ -1723,7 +1745,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260918i"></script>
+  <script src="app.js?v=20260918j"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;

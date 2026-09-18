@@ -2792,6 +2792,22 @@ function app() {
       const actuator = this.actuators.find(a => a.index === task.actuatorIndex); 
       return actuator ? actuator.online : true; 
     },
+    // Teks durasi ramah-baca: menit bila < 1 jam, selebihnya jam (+ menit sisa).
+    formatDurasiMenit(menit) {
+      const nilai = Math.max(0, Math.round(Number(menit) || 0));
+      if (nilai < 60) return `${nilai} menit`;
+      const jam = Math.floor(nilai / 60);
+      const sisa = nilai % 60;
+      return sisa === 0 ? `${jam} jam` : `${jam} jam ${sisa} menit`;
+    },
+    // Durasi manual aktuator (ms) — mis. "30 detik" s/d "6 jam (360 menit)".
+    formatDurasiManual(milidetik) {
+      const nilaiMs = Math.max(0, Number(milidetik) || 0);
+      if (nilaiMs < 60000) return `${Math.max(1, Math.round(nilaiMs / 1000))} detik`;
+      const menit = Math.round(nilaiMs / 60000);
+      if (menit < 60) return `${menit} menit`;
+      return `${this.formatDurasiMenit(menit)} (${menit} menit)`;
+    },
     // Nilai sensor terkini untuk sebuah task. Diutamakan dari daftar sensor yang
     // sedang tampil (termasuk saat perangkat hanya mengirim DELTA/penghematan
     // kuota), fallback ke nilai terakhir yang dikirim bersama daftar task.
