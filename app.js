@@ -4362,6 +4362,14 @@ function app() {
     get sensorhubFieldList() {
       return this.sensorhubNode?.fields || [];
     },
+    // Pemilik sensor = kontrol id kontroler pengirim (mis. KA-24C2). Dicatat
+    // otomatis oleh SensorHub saat data pertama masuk — tanpa proses claim.
+    get sensorhubOwner() {
+      return this.sensorhubNode?.kontrol_id || '';
+    },
+    get sensorhubPublic() {
+      return !!this.sensorhubNode?.public;
+    },
     // Kolom yang dicentang di grafik (bisa lebih dari satu).
     sensorhubFieldSelected(name) {
       return this.sensorhubFields.includes(name);

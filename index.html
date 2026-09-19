@@ -1566,7 +1566,7 @@
         <div>
           <h3 class="text-lg font-bold">📈 Riwayat Sensor</h3>
           <p class="text-xs text-gray-400"
-            x-text="sensorhubNode ? (sensorhubNode.sn + ' • ' + sensorhubNode.name) : 'karjoAgroSensorHub'"></p>
+            x-text="sensorhubNode ? (sensorhubNode.sn + ' • ' + sensorhubNode.name + (sensorhubOwner ? ' • pemilik ' + sensorhubOwner : '')) : 'karjoAgroSensorHub'"></p>
         </div>
         <div class="flex items-center gap-2">
           <button @click="loadSensorHubNodes().then(() => fetchCloudData())" class="btn ghost small"
@@ -1580,9 +1580,14 @@
           <label>Node Sensor</label>
           <select x-model="sensorhubSn" @change="sensorhubFields = []; fetchCloudData()">
             <template x-for="n in sensorhubNodes" :key="n.sn">
-              <option :value="n.sn" x-text="`${n.sn} — ${n.name}`"></option>
+              <option :value="n.sn" x-text="`${n.sn} — ${n.name}${n.kontrol_id ? ' (' + n.kontrol_id + ')' : ''}`"></option>
             </template>
           </select>
+          <p class="help">Data dikirim kontroler lewat MQTT dan disimpan otomatis oleh
+            <b>karjoAgroSensorHub</b> per serial node (tanpa claim).
+            Pemilik sementara: <b x-text="sensorhubOwner || '—'"></b>
+            <span x-show="sensorhubPublic">(sensor publik)</span>.
+          </p>
         </div>
 
         <!-- Rentang waktu -->
@@ -1704,7 +1709,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260918l"></script>
+  <script src="app.js?v=20260919a"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
