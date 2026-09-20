@@ -1852,7 +1852,7 @@ function app() {
       const ok = result.ok !== false;
       return { ok, data: result, text: JSON.stringify(result) };
     },
-    async sendActuator(index, action, tombol) { if (!this.beginAction(tombol)) return; if (this.mode === 'local') { const duration = action === 'on' ? this.config.manualDurationMs : 0; const res = await this.sendLocalCommand({ cmd: 'setActuator', index, action, durationMs: duration }); if (res.ok) await this.refreshLocal(); else this.showToast('Gagal mengirim perintah.', 'error'); this.endAction(); } else { this.publishCommand({ cmd: 'setActuator', index, action, durationMs: this.config.manualDurationMs }); } },
+    async sendActuator(index, action, tombol) { if (!this.beginAction(tombol)) return; if (this.mode === 'local') { const duration = this.config.manualDurationMs; const res = await this.sendLocalCommand({ cmd: 'setActuator', index, action, durationMs: duration }); if (res.ok) await this.refreshLocal(); else this.showToast('Gagal mengirim perintah.', 'error'); this.endAction(); } else { this.publishCommand({ cmd: 'setActuator', index, action, durationMs: this.config.manualDurationMs }); } },
     async runTask(index, tombol) { if (!this.beginAction(tombol)) return; this.loadingTaskIndex = index; if (this.mode === 'local') { const res = await this.sendLocalCommand({ cmd: 'runTask', index }); if(res.ok) await this.refreshLocal(); this.endAction(); } else { this.publishCommand({ cmd: 'runTask', index }); } },
     deleteTask(index) { 
       if (!this.allowTaskDelete) {
