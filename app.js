@@ -315,7 +315,7 @@ function parseLocalDateTimeInput(value) {
 function app() {
   return {
     // State utama
-    isAuthenticated: false, config: JSON.parse(JSON.stringify(defaults)), connectionPreference: normalizeConnectionPreference(localStorage.getItem('karjo_ui_connection_mode')), mode: 'offline', connected: false, network: {}, sensors: [], actuators: [], tasks: [], currentTaskIndex: 0, lastUpdate: null, mqttClient: null, refreshTimer: null, uiTimer: null, now: Date.now(), actionInFlight: false, actionTimer: null, pendingKontrolId: null, pendingTaskSave: null, theme: 'dark',
+    isAuthenticated: false, config: JSON.parse(JSON.stringify(defaults)), connectionPreference: normalizeConnectionPreference(localStorage.getItem('karjo_ui_connection_mode')), mode: 'offline', connected: false, network: {}, manualDurationMs: 0, manualDurationMinutes: 0, manualDurationBusy: false, sensors: [], actuators: [], tasks: [], currentTaskIndex: 0, lastUpdate: null, mqttClient: null, refreshTimer: null, uiTimer: null, now: Date.now(), actionInFlight: false, actionTimer: null, pendingKontrolId: null, pendingTaskSave: null, theme: 'dark',
     localDetectTimer: null, localLastSuccessMs: 0, connectionAttemptId: 0,
     localPollingPaused: false, localFallbackNotified: false,
     backgroundImage: localStorage.getItem('karjo_ui_bg') || '',
@@ -941,6 +941,59 @@ function app() {
       if (shouldReset) {
         this.clearDeviceState();
         this.network = nextNetwork;
+      }
+      // Durasi manual diambil dari perangkat (NVS) agar semua klien memakai
+      // nilai yang sama. Perintah manual dikirim tanpa durasi (durationMs=0),
+      // jadi perangkat yang menentukan batas waktunya.
+      this.applyManualDurationData(nextNetwork);
+    },
+
+    // ── Durasi manual (timeout tombol manual, 1 menit … 6 jam) ────────────
+    // Padanan: serial `manualdur`, API `GET|POST /api/manual-duration`,
+    // MQTT `setManualDuration`. Nilai disimpan di perangkat.
+    get manualDurationSummary() {
+      const menit = Math.round(toNumber(this.manualDurationMinutes, 0));
+      if (menit <= 0) return '';
+      return `${menit} menit (${this.formatDurasiManual(menit * 60000)})`;
+    },
+    applyManualDurationData(data) {
+      if (!data || typeof data !== 'object') return;
+      let menit = Math.round(toNumber(data.manualDurationMinutes, 0));
+      if (menit <= 0) menit = Math.round(toNumber(data.minutes, 0));
+      if (menit <= 0) {
+        const ms = Math.round(toNumber(data.manualDurationMs, toNumber(data.ms, 0)));
+        if (ms > 0) menit = Math.max(1, Math.round(ms / 60000));
+      }
+      if (menit > 0) {
+        this.manualDurationMinutes = menit;
+        this.manualDurationMs = menit * 60000;
+      }
+    },
+    async saveManualDuration() {
+      const menit = Math.max(1, Math.min(360, Math.round(toNumber(this.manualDurationMinutes, 60))));
+      this.manualDurationMinutes = menit;
+      this.manualDurationMs = menit * 60000;
+      this.manualDurationBusy = true;
+      try {
+        if (this.mode === 'local') {
+          const result = await this.localFetch('/api/manual-duration', {
+            method: 'POST',
+            body: JSON.stringify({ minutes: menit })
+          });
+          if (!result || result.ok === false) {
+            throw new Error(result?.error || result?.message || 'Gagal menyimpan durasi manual');
+          }
+          this.applyManualDurationData(result);
+          await this.refreshLocal();
+          this.showToast(result.message || `Durasi manual: ${menit} menit.`);
+        } else {
+          this.publishCommand({ cmd: 'setManualDuration', minutes: menit });
+          this.showToast(`Perintah durasi manual (${menit} menit) dikirim.`);
+        }
+      } catch (error) {
+        this.showToast(error?.message || 'Gagal menyimpan durasi manual.', 'error');
+      } finally {
+        this.manualDurationBusy = false;
       }
     },
 
@@ -1852,7 +1905,8 @@ function app() {
       const ok = result.ok !== false;
       return { ok, data: result, text: JSON.stringify(result) };
     },
-    async sendActuator(index, action, tombol) { if (!this.beginAction(tombol)) return; if (this.mode === 'local') { const duration = this.config.manualDurationMs; const res = await this.sendLocalCommand({ cmd: 'setActuator', index, action, durationMs: duration }); if (res.ok) await this.refreshLocal(); else this.showToast('Gagal mengirim perintah.', 'error'); this.endAction(); } else { this.publishCommand({ cmd: 'setActuator', index, action, durationMs: this.config.manualDurationMs }); } },
+    // durationMs=0 → perangkat memakai durasi manual tersimpan (NVS).
+    async sendActuator(index, action, tombol) { if (!this.beginAction(tombol)) return; if (this.mode === 'local') { const res = await this.sendLocalCommand({ cmd: 'setActuator', index, action, durationMs: 0 }); if (res.ok) await this.refreshLocal(); else this.showToast('Gagal mengirim perintah.', 'error'); this.endAction(); } else { this.publishCommand({ cmd: 'setActuator', index, action, durationMs: 0 }); } },
     async runTask(index, tombol) { if (!this.beginAction(tombol)) return; this.loadingTaskIndex = index; if (this.mode === 'local') { const res = await this.sendLocalCommand({ cmd: 'runTask', index }); if(res.ok) await this.refreshLocal(); this.endAction(); } else { this.publishCommand({ cmd: 'runTask', index }); } },
     deleteTask(index) { 
       if (!this.allowTaskDelete) {

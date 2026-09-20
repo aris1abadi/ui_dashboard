@@ -802,13 +802,21 @@
         <hr class="my-4 border-gray-700" />
         <p class="text-sm font-bold text-gray-300 mb-3">⚙️ Pengaturan Umum</p>
         <div class="form-group">
-          <label>Durasi Manual: <span x-text="formatDurasiManual(config.manualDurationMs)"></span></label>
-          <input type="range" min="1" max="6" step="0.5" :value="config.manualDurationMs / 3600000"
-            @input="config.manualDurationMs = Math.round($event.target.value * 3600000)" />
-          <div class="flex justify-between text-[10px] text-gray-600 mt-1 uppercase tracking-widest">
-            <span>1 jam</span>
-            <span>6 jam</span>
+          <label>Durasi Manual (timeout tombol manual)</label>
+          <div class="flex gap-2 items-center">
+            <input type="number" min="1" max="360" step="1" class="flex-1"
+              x-model.number="manualDurationMinutes" :disabled="manualDurationBusy"
+              @keydown.enter.prevent="saveManualDuration()" />
+            <button type="button" class="btn btn-primary" @click="saveManualDuration()"
+              :disabled="manualDurationBusy">
+              <span x-text="manualDurationBusy ? 'Menyimpan…' : 'Simpan'"></span>
+            </button>
           </div>
+          <p class="help">
+            Satuan menit, rentang 1 sampai 360 menit (1 menit … 6 jam).
+            <span x-show="manualDurationSummary" x-text="`Tersimpan sekarang: ${manualDurationSummary}.`"></span>
+            Selama waktu ini otomasi ambang/jadwal ditahan (prioritas manual lebih tinggi).
+          </p>
         </div>
       </div>
 
