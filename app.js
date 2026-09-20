@@ -182,7 +182,14 @@ function parseActuatorsJson(muatan) {
     reportedActive: toBool(item.reportedActive ?? item.nodeReportedActive),
     statusAgeMs: toNumber(item.statusAgeMs ?? 0),
     lastTriggeredMs: toNumber(item.lastTriggeredMs ?? 0),
-    stopAtMs: toNumber(item.stopAtMs ?? 0)
+    stopAtMs: toNumber(item.stopAtMs ?? 0),
+    // Diagnostik "kenapa otomasi ambang tidak jalan": siapa yang menahan dan sisa waktunya.
+    activePriority: toNumber(item.activePriority ?? 0),
+    holdOffPriority: toNumber(item.holdOffPriority ?? 0),
+    holdOffActive: toBool(item.holdOffActive) || toNumber(item.holdOffRemainMs ?? 0) > 0,
+    holdOffRemainMs: toNumber(item.holdOffRemainMs ?? 0),
+    holdRemainMs: toNumber(item.holdRemainMs ?? 0),
+    holdReason: item.holdReason || 'none'
   }));
 }
 function parseTaskSchedulesJson(schedules, label) {
@@ -946,6 +953,45 @@ function app() {
       // nilai yang sama. Perintah manual dikirim tanpa durasi (durationMs=0),
       // jadi perangkat yang menentukan batas waktunya.
       this.applyManualDurationData(nextNetwork);
+    },
+
+    // ── Tahan/hold-off aktuator (kenapa otomasi ambang tidak jalan) ───────
+    // Perintah manual memasang hold-off (bawaan 1 jam): selama itu otomasi
+    // ambang/jadwal TIDAK bisa memicu aktuator. Teks di bawah menjelaskannya,
+    // dan `clearHold` melepaskannya lebih cepat.
+    actuatorHoldText(actuator) {
+      if (!actuator) return '';
+      const jeda = Math.round(toNumber(actuator.holdOffRemainMs, 0));
+      if (jeda > 0) {
+        return `Ditahan manual ${this.formatDurasiManual(jeda)} — otomasi ambang/jadwal tidak bisa memicu`;
+      }
+      const tahan = Math.round(toNumber(actuator.holdRemainMs, 0));
+      if (tahan > 0) {
+        return toNumber(actuator.activePriority, 0) >= 3
+          ? `Manual ON: sisa ${this.formatDurasiManual(tahan)} — otomasi ditahan`
+          : `Timer ON: sisa ${this.formatDurasiManual(tahan)}`;
+      }
+      return '';
+    },
+    actuatorHoldVisible(actuator) {
+      return !!actuator && (toNumber(actuator.holdOffRemainMs, 0) > 0 || toNumber(actuator.holdRemainMs, 0) > 0);
+    },
+    async clearActuatorHold(index, tombol) {
+      if (tombol) tombol.disabled = true;
+      try {
+        if (this.mode === 'local') {
+          const res = await this.sendLocalCommand({ cmd: 'clearHold', index });
+          if (res.ok) await this.refreshLocal();
+          else this.showToast('Gagal melepas tahan aktuator.', 'error');
+        } else if (this.mode === 'mqtt' && this.connected) {
+          this.publishCommand({ cmd: 'clearHold', index });
+          this.showToast('Perintah lepas tahan dikirim.');
+        } else {
+          this.showToast('Perangkat belum terhubung.', 'error');
+        }
+      } finally {
+        if (tombol) tombol.disabled = false;
+      }
     },
 
     // ── Durasi manual (timeout tombol manual, 1 menit … 6 jam) ────────────

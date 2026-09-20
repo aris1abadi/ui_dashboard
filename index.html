@@ -747,13 +747,22 @@
                 <div>
                   <div class="title" x-text="actuator.label || getUiLabel('actuator')"></div>
                   <div class="meta" x-text="`${getUiLabel('node')} ${actuator.nodeId}:${actuator.childId}`"></div>
+                  <div class="meta text-amber-300" x-show="actuatorHoldVisible(actuator)"
+                    x-text="actuatorHoldText(actuator)"></div>
                 </div>
-                <button class="btn small status-btn"
-                  :class="{ 'status-on': actuator.active, 'status-off': !actuator.active && actuator.online, 'status-offline': !actuator.online }"
-                  @click="sendActuator(actuator.index, actuator.active ? 'off' : 'on', $event.currentTarget)"
-                  :disabled="!actuator.online"
-                  x-text="actuator.online ? (actuator.active ? 'Aktif' : 'Nonaktif') : 'Offline'">
-                </button>
+                <div class="flex gap-2 items-center">
+                  <button class="btn ghost small" x-show="actuatorHoldVisible(actuator)"
+                    @click="clearActuatorHold(actuator.index, $event.currentTarget)"
+                    :disabled="actionInFlight" title="Lepas tahan manual/hold-off supaya otomasi ambang & jadwal bisa memicu lagi">
+                    Lepas tahan
+                  </button>
+                  <button class="btn small status-btn"
+                    :class="{ 'status-on': actuator.active, 'status-off': !actuator.active && actuator.online, 'status-offline': !actuator.online }"
+                    @click="sendActuator(actuator.index, actuator.active ? 'off' : 'on', $event.currentTarget)"
+                    :disabled="!actuator.online"
+                    x-text="actuator.online ? (actuator.active ? 'Aktif' : 'Nonaktif') : 'Offline'">
+                  </button>
+                </div>
               </div>
             </template>
           </div>
