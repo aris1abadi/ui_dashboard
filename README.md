@@ -1,24 +1,23 @@
 # UI Dashboard Contract
 
-`ui_dashboard` adalah satu-satunya dashboard operator untuk dua perangkat:
+`ui_dashboard` adalah satu-satunya dashboard operator untuk perangkat
+`karjoAgroKontrol2`. Pemilihan perangkat dilakukan dengan mengganti `kontrolId`.
 
-- `karjoAgroKontrol2`
-- `karjoAgroGreenHouseS2`
-
-Pemilihan perangkat dilakukan dengan mengganti `kontrolId`.
+> ⚠️ `karjoAgroGreenHouseS2` **sudah digabung ke `karjoAgroKontrol2`** (21 Sep 2026)
+> dan repo-nya sudah dihapus. Aturan "greenhouse" di bawah kini berlaku untuk
+> Kontrol2 yang menjalankan mode 3 task fixed.
 
 ## Peran Project
 
-- `karjoAgroKontrol2`
+- `karjoAgroKontrol2` (satu firmware untuk semua varian)
   - mendukung task dinamis
   - dapat menambah, mengubah, dan menghapus task
-- `karjoAgroGreenHouseS2`
-  - memakai 3 task tetap
-  - urutan task tetap:
+  - **mode greenhouse** (dulu `karjoAgroGreenHouseS2`, digabung 21 Sep 2026):
+    memakai 3 task tetap, urutan task tetap:
     - `soil moisture / water`
     - `temperature / blower`
     - `humidity / humidifier`
-  - task baru tidak diperbolehkan
+    task baru tidak diperbolehkan
 
 ## Kontrak JSON Utama
 
@@ -121,9 +120,9 @@ Mapping sumber:
 - `schedule` -> jadwal
 - `threshold` -> otomatis berdasarkan threshold sensor
 
-## Aturan GreenHouse S2
+## Aturan mode greenhouse (dulu `karjoAgroGreenHouseS2`, kini di `karjoAgroKontrol2`)
 
-Untuk `karjoAgroGreenHouseS2`:
+Untuk mode greenhouse:
 
 - `allowTaskCreate = false`
 - `allowTaskDelete = false`
@@ -136,8 +135,8 @@ Untuk `karjoAgroGreenHouseS2`:
 Jika ada perubahan field baru, usahakan:
 
 1. `ui_dashboard` membaca field itu tanpa perlu menebak format lama
-2. `karjoAgroKontrol2` dan `karjoAgroGreenHouseS2` mengirim field yang sama
-3. greenhouse tetap mempertahankan 3 task fixed untuk hardware yang sudah terkunci
+2. satu firmware (`karjoAgroKontrol2`) mengirim field yang sama untuk semua varian
+3. mode greenhouse tetap mempertahankan 3 task fixed untuk hardware yang sudah terkunci
 
 ## Login Baru
 
