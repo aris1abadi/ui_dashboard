@@ -1833,7 +1833,13 @@ function app() {
         this.applyLogPayload(muatan);
       }
       this.lastUpdate = new Date(); 
-      this.tandaiKontrolerHidup();
+      // PENTING: pesan RETAINED = salinan simpanan broker (baseline saat
+      // perangkat tersambung, atau SISA koneksi lama). Pesan itu dikirim broker
+      // begitu dashboard berlangganan — bisa berumur berhari-hari — sehingga
+      // TIDAK boleh dianggap bukti perangkat hidup. Tanpa penjagaan ini badge
+      // baris-2 langsung hijau saat halaman dibuka walau perangkat sudah lama
+      // offline, lalu simpan task berakhir "timeout" tanpa sebab yang jelas.
+      if (!retained) this.tandaiKontrolerHidup();
       this.endAction(); 
     },
     startLocalPolling() {
