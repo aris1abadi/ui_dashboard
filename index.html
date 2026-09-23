@@ -348,19 +348,17 @@
     <header class="top-bar">
       <div>
         <p class="eyebrow">karjoAgro kontrol</p>
-        <div class="status-inline mt-1" :class="headerStatus.variant" :title="headerStatusTitle">
+        <!-- Baris ke-2: ID kontroler + UI. Kuning = belum tersambung.
+             Tekan untuk info koneksi ("Kontroler sedang offline"). -->
+        <div class="status-inline mt-1 cursor-pointer" :class="headerStatus.variant"
+          :title="headerStatusTitle" @click="showKontrolOfflineInfo()">
           <span class="status-inline-icon" x-text="getHeaderStatusIcon()"></span>
           <span class="status-inline-text" x-text="headerStatus.text"></span>
         </div>
+        <!-- Kondisi baterai: cukup persen; tegangan ada di Setelan → Status -->
         <div class="status-inline mt-1" :class="powerStatus.variant" :title="powerStatus.title">
           <span class="status-inline-icon" x-text="powerStatus.icon"></span>
           <span class="status-inline-text" x-text="powerStatus.text"></span>
-        </div>
-        <!-- Snapshot terakhir dari VPS (tampil hanya saat kontroler tak terjangkau) -->
-        <div class="status-inline mt-1" x-show="vpsStateActive" :class="vpsStateBadge.variant"
-          :title="vpsStateBadge.title">
-          <span class="status-inline-icon" x-text="vpsStateBadge.icon"></span>
-          <span class="status-inline-text" x-text="vpsStateBadge.text"></span>
         </div>
       </div>
       <div class="status-stack">
@@ -510,6 +508,20 @@
             </div>
             <span class="badge badge-muted"
               x-text="lastUpdate ? new Date(lastUpdate).toLocaleString('id-ID') : '-'"></span>
+          </div>
+          <div class="item">
+            <div>
+              <div class="title">Sumber Daya</div>
+              <div class="meta">Asal listrik kontroler saat ini</div>
+            </div>
+            <span class="badge badge-muted" x-text="powerSourceText"></span>
+          </div>
+          <div class="item">
+            <div>
+              <div class="title">Tegangan Baterai</div>
+              <div class="meta">Pembacaan terakhir dari kontroler</div>
+            </div>
+            <span class="badge badge-muted" x-text="powerVoltageText"></span>
           </div>
         </div>
 
@@ -1724,12 +1736,13 @@
   </div>
 
   <div class="toast" x-show="toast.visible" x-text="toast.message"
-    :style="{ borderColor: toast.type === 'error' ? '#ff6b6b' : '#25f4b8' }" x-transition></div>
+    :style="{ borderColor: toast.type === 'error' ? '#ff6b6b' : (toast.type === 'warn' ? '#ffd166' : '#25f4b8') }"
+    x-transition></div>
 
   <script src="mqtt.min.js"></script>
   <script src="chart.umd.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260923f"></script>
+  <script src="app.js?v=20260923g"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;

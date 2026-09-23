@@ -597,7 +597,8 @@ function app() {
           title: `Sumber daya: POWER SUPPLY (Vbat ${v.toFixed(2)} V)`
         };
       }
-      const text = pct === null ? `${v.toFixed(2)} V` : `${v.toFixed(2)} V • ${pct}%`;
+      // Ringkas: cukup persen. Tegangan lengkap ada di Setelan → Status.
+      const text = pct === null ? '--' : `${pct}%`;
       if (p.low) {
         return {
           icon: '🪫',
@@ -612,6 +613,33 @@ function app() {
         variant: 'badge-success',
         title: `Baterai LiFePO4: ${v.toFixed(2)} V (${pctText})`
       };
+    },
+    // Nilai daya mentah (dipakai badge header + Setelan → Status).
+    get powerDetail() {
+      const p = this.network?.power;
+      const v = Number(p?.voltage);
+      if (!p || !Number.isFinite(v)) return null;
+      const pctRaw = Number(p.percent);
+      const pct = Number.isFinite(pctRaw) ? Math.round(pctRaw) : null;
+      return {
+        voltage: v,
+        pct,
+        pctText: pct === null ? 'persen belum tersedia' : `${pct}%`,
+        low: !!p.low,
+        onBattery: !!p.onBattery,
+        chem: `${p.chem || ''}`.trim() || 'baterai',
+      };
+    },
+    // Tegangan baterai (hanya di Setelan → Status, tidak di header).
+    get powerVoltageText() {
+      const d = this.powerDetail;
+      if (!d) return '-';
+      return `${d.voltage.toFixed(2)} V${d.pct === null ? '' : ` (${d.pct}%)`}`;
+    },
+    get powerSourceText() {
+      const d = this.powerDetail;
+      if (!d) return '-';
+      return d.onBattery ? `Baterai (${d.chem})` : 'Power Supply';
     },
     get filteredLogs() { if (this.logFilter === 'all') return this.logs; const map = { sensor: 0, button: 1, status: 3 }; if (this.logFilter === 'system') return this.logs.filter(e => e.type !== 0); return this.logs.filter(e => e.type === map[this.logFilter]); },
     get paginatedFilteredLogs() {
@@ -4467,7 +4495,8 @@ function app() {
     // ── DUPLIKAT STATUS DI VPS (SensorHub) ────────────────────────────────
     // Kontroler mengirim state terakhirnya (status/task/sensor/aktuator) ke
     // SensorHub; saat kontroler TIDAK terjangkau dashboard memakai snapshot itu
-    // supaya task/sensor/aktuator tetap terlihat (dengan penanda "data VPS").
+    // supaya task/sensor/aktuator tetap terlihat (penanda: baris ID jadi kuning,
+    // tekan untuk melihat pesan "Kontroler sedang offline").
     vpsState: null,        // {age_s, last_seen, online, diambil}
     vpsStateBusy: false,
     vpsStateTimer: null,
@@ -4544,14 +4573,21 @@ function app() {
       if (jam < 48) return `${jam} jam lalu`;
       return `${Math.round(jam / 24)} hari lalu`;
     },
-    get vpsStateBadge() {
+    // Dipanggil saat baris ID kontroler ditekan (manual) di header. Teks sengaja
+    // sederhana: pengguna tidak perlu tahu soal VPS/snapshot.
+    showKontrolOfflineInfo() {
+      const label = `${this.cloudKontrolId || ''}`.trim() || 'Kontroler';
+      if (this.isLiveConnected) {
+        this.showToast(`${label} tersambung — data langsung dari kontroler.`);
+        return;
+      }
       const umur = this.vpsStateAgeText;
-      return {
-        icon: '🗄️',
-        text: umur ? `Data VPS ${umur}` : 'Data VPS',
-        variant: 'badge-warn',
-        title: `Kontroler tidak terjangkau — yang ditampilkan adalah data terakhir yang tersimpan di VPS${umur ? ` (${umur})` : ''}.`,
-      };
+      this.showToast(
+        umur
+          ? `Kontroler sedang offline — menampilkan data terakhir (${umur}).`
+          : 'Kontroler sedang offline.',
+        'warn'
+      );
     },
     // Ambil snapshot dari SensorHub. Hanya saat TIDAK live (kalau live, snapshot
     // dibuang supaya data langsung dari perangkat yang dipakai).
@@ -4624,7 +4660,7 @@ function app() {
       // data ini snapshot, bukan live.
       if (kosongSebelumnya && !this._vpsSnapshotNotified) {
         this._vpsSnapshotNotified = true;
-        this.showToast(`Kontroler belum terjangkau — menampilkan data terakhir dari VPS (${this.vpsStateAgeText || 'tersimpan'}).`, 'info');
+        this.showToast(`Kontroler sedang offline — menampilkan data terakhir (${this.vpsStateAgeText || 'tersimpan'}).`, 'warn');
       }
     },
     startVpsStateWatch() {
