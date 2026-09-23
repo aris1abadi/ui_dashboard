@@ -4488,10 +4488,9 @@ function app() {
     // Daftar node (serial) yang punya data di SensorHub.
     sensorhubNodes: [],
     sensorhubSn: '',
-    sensorhubFields: [],
+    // SATU sensor yang digrafikkan (dipilih dari dropdown "Pilih Sensor").
+    sensorhubChartField: '',
     sensorhubSeries: [],
-    sensorhubLatest: {},
-    sensorhubLatestAt: {},
     // ── DUPLIKAT STATUS DI VPS (SensorHub) ────────────────────────────────
     // Kontroler mengirim state terakhirnya (status/task/sensor/aktuator) ke
     // SensorHub; saat kontroler TIDAK terjangkau dashboard memakai snapshot itu
@@ -4534,17 +4533,16 @@ function app() {
     get sensorhubPublic() {
       return !!this.sensorhubNode?.public;
     },
-    // Kolom yang dicentang di grafik (bisa lebih dari satu).
+    // Sensor yang digrafikkan = SATU yang dipilih di dropdown.
     sensorhubFieldSelected(name) {
-      return this.sensorhubFields.includes(name);
+      return this.sensorhubChartField === name;
     },
-    toggleSensorhubField(name) {
-      if (this.sensorhubFields.includes(name)) {
-        this.sensorhubFields = this.sensorhubFields.filter((n) => n !== name);
-      } else {
-        this.sensorhubFields = [...this.sensorhubFields, name];
-      }
-      this.fetchCloudData();
+    // Ganti sensor yang digrafikkan (dropdown). Tidak perlu memuat ulang data:
+    // seluruh kolom channel sudah diambil sekaligus saat membuka riwayat.
+    async selectSensorhubChart(name) {
+      this.sensorhubChartField = `${name || ''}`;
+      await this.$nextTick();
+      await this.renderSensorhubCharts();
     },
     sensorhubColor(index) {
       // Palet SAMA dengan SensorHub (channel_detail.html `colors`) supaya warna
@@ -4741,40 +4739,32 @@ function app() {
 
       const token = encodeURIComponent(this.cloudToken);
       const sn = encodeURIComponent(this.sensorhubSn);
-      const fields = this.sensorhubFields.map((f) => encodeURIComponent(f)).join(',');
 
       try {
+        // Seluruh kolom channel dimuat sekaligus (tanpa filter `field`) supaya
+        // ganti sensor di dropdown langsung tampil tanpa memuat data lagi.
         const urlSeries =
           `${this.cloudBase}/api/series?sn=${sn}&since=${encodeURIComponent(since)}` +
-          `&limit=1500&token=${token}` +
-          (fields ? `&field=${fields}` : '');
-        const urlLatest = `${this.cloudBase}/api/series/latest?sn=${sn}&token=${token}`;
+          `&limit=1500&token=${token}`;
 
-        const [seriesResp, latestResp] = await Promise.all([
-          fetch(urlSeries, { cache: 'no-store' }),
-          fetch(urlLatest, { cache: 'no-store' }),
-        ]);
+        const seriesResp = await fetch(urlSeries, { cache: 'no-store' });
         const series = await seriesResp.json();
-        const latest = await latestResp.json();
         if (!series.ok) throw new Error(series.detail || 'Gagal memuat data SensorHub');
 
-        // Set data dulu supaya pemilihan sensor awal tahu mana yang ada datanya.
         this.sensorhubSeries = series.data || [];
         this.cloudHistory = this.sensorhubSeries;
         this.cloudDataCount = series.count || this.sensorhubSeries.length;
-        this.sensorhubLatest = latest.ok ? latest.latest || {} : {};
-        this.sensorhubLatestAt = latest.ok ? latest.at || {} : {};
 
-        // Bila pengguna belum memilih sensor → pilih otomatis dari sensor yang
-        // punya data (bukan aktuator/relay), maks 2 grafik.
-        if (!this.sensorhubFields.length) {
-          this.sensorhubFields = this.sensorhubDefaultFields();
+        // Sensor terpilih tidak ada lagi di channel ini → pilih otomatis
+        // sensor pertama yang punya data.
+        const tersedia = (this.sensorhubFieldList || []).map((f) => f.name);
+        if (!this.sensorhubChartField || !tersedia.includes(this.sensorhubChartField)) {
+          this.sensorhubChartField = this.sensorhubDefaultFields()[0] || '';
         }
       } catch (err) {
         this.cloudHistoryError = err.message || 'Gagal terhubung ke SensorHub';
         this.sensorhubSeries = [];
         this.cloudHistory = [];
-        this.sensorhubLatest = {};
       } finally {
         this.cloudHistoryLoading = false;
       }
@@ -4782,22 +4772,23 @@ function app() {
       await this.renderSensorhubCharts();
     },
 
-    // Sensor yang digrafikkan = yang DIPILIH pengguna. Bila belum ada pilihan,
-    // diambil otomatis dari sensor yang punya data (lihat `sensorhubDefaultFields`).
+    // Grafik yang ditampilkan: SATU sensor saja (yang dipilih di dropdown).
     get sensorhubChartFields() {
-      const dipilih = [...(this.sensorhubFields || [])];
-      if (dipilih.length) return dipilih;
-      return this.sensorhubDefaultFields();
+      const dipilih = `${this.sensorhubChartField || ''}`.trim();
+      if (dipilih) return [dipilih];
+      const otomatis = this.sensorhubDefaultFields()[0];
+      return otomatis ? [otomatis] : [];
     },
 
-    // Pilihan awal: sensor (bukan aktuator/relay) yang punya data, maks 2.
+    // Pilihan awal: sensor (bukan aktuator/relay) yang punya data. Hanya SATU
+    // karena grafik menampilkan satu sensor saja.
     sensorhubDefaultFields() {
       const daftar = (this.sensorhubFieldList || []).map((f) => f.name);
       const adaData = (n) => (this.sensorhubSeries || []).some((r) => typeof r[n] === 'number');
       const bukanAktuator = daftar.filter((n) => !/aktuator|relay|pompa|kipas|pump|fan/i.test(n));
       const utama = bukanAktuator.filter(adaData);
       const pilihan = utama.length ? utama : (bukanAktuator.length ? bukanAktuator : daftar);
-      return pilihan.slice(0, 2);
+      return pilihan.slice(0, 1);
     },
 
     // Titik data satu sensor: [{ts, v}] (hanya nilai angka).
@@ -4805,6 +4796,32 @@ function app() {
       return (this.sensorhubSeries || [])
         .map((row) => ({ ts: row.ts, v: Number(row[name]) }))
         .filter((p) => Number.isFinite(p.v));
+    },
+    // Unduh data SATU sensor dalam CSV (sesuai rentang waktu yang aktif).
+    downloadSensorhubCsv(name) {
+      const titik = this.sensorhubSeriesFor(name);
+      if (!titik.length) {
+        this.showToast(`Belum ada data "${name}" pada rentang ini.`, 'warn');
+        return;
+      }
+      const unit = this.sensorhubSensorUnit(name);
+      const baris = [`waktu;nilai${unit ? ` (${unit})` : ''}`];
+      titik.forEach((p) => {
+        baris.push(`${new Date(p.ts).toLocaleString('id-ID')};${String(p.v).replace('.', ',')}`);
+      });
+      const berkas = `${name}`.replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, '') || 'sensor';
+      const blob = new Blob(['\uFEFF' + baris.join('\r\n') + '\r\n'], {
+        type: 'text/csv;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      const tautan = document.createElement('a');
+      tautan.href = url;
+      tautan.download = `${this.sensorhubSn || 'channel'}-${berkas}-${this.cloudDateRange}.csv`;
+      document.body.appendChild(tautan);
+      tautan.click();
+      document.body.removeChild(tautan);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      this.showToast(`Data "${name}" diunduh (${titik.length} titik).`);
     },
     // Ringkasan satu sensor: nilai terakhir, min/max, jumlah titik, waktu akhir.
     sensorhubSensorStat(name) {

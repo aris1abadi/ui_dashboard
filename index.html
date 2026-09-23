@@ -1504,7 +1504,7 @@
         <!-- Channel = kontroler (`KA-XXXX`, semua sensor) atau node tunggal (`SN-XXXX`) -->
         <div class="form-group">
           <label>Channel Sensor</label>
-          <select x-model="sensorhubSn" @change="sensorhubFields = []; fetchCloudData()">
+          <select x-model="sensorhubSn" @change="sensorhubChartField = ''; fetchCloudData()">
             <template x-for="n in sensorhubNodes" :key="n.sn">
               <option :value="n.sn" x-text="sensorhubNodeLabel(n)"></option>
             </template>
@@ -1518,24 +1518,23 @@
 
         <!-- Rentang waktu -->
         <div class="flex gap-2 mb-4 flex-wrap">
-          <button class="btn small" :class="cloudDateRange === '1h' ? 'primary' : 'ghost'"
-            @click="cloudDateRange='1h'; fetchCloudData()">1 Jam</button>
-          <button class="btn small" :class="cloudDateRange === '6h' ? 'primary' : 'ghost'"
-            @click="cloudDateRange='6h'; fetchCloudData()">6 Jam</button>
           <button class="btn small" :class="cloudDateRange === '24h' ? 'primary' : 'ghost'"
-            @click="cloudDateRange='24h'; fetchCloudData()">24 Jam</button>
+            @click="cloudDateRange='24h'; fetchCloudData()">1 Hari</button>
           <button class="btn small" :class="cloudDateRange === '7d' ? 'primary' : 'ghost'"
             @click="cloudDateRange='7d'; fetchCloudData()">7 Hari</button>
           <button class="btn small" :class="cloudDateRange === '30d' ? 'primary' : 'ghost'"
             @click="cloudDateRange='30d'; fetchCloudData()">30 Hari</button>
         </div>
 
-        <!-- Pilih sensor yang digrafikkan (tiap sensor = satu grafik sendiri) -->
-        <div class="flex gap-2 mb-4 flex-wrap" x-show="sensorhubFieldList.length">
-          <template x-for="(f, i) in sensorhubFieldList" :key="f.key">
-            <button class="btn small" :class="sensorhubFieldSelected(f.name) ? 'primary' : 'ghost'"
-              @click="toggleSensorhubField(f.name)" x-text="f.name"></button>
-          </template>
+        <!-- Pilih SATU sensor untuk digrafikkan -->
+        <div class="form-group" x-show="sensorhubFieldList.length">
+          <label>Pilih Sensor</label>
+          <select x-model="sensorhubChartField"
+            @change="selectSensorhubChart($event.target.value)">
+            <template x-for="f in sensorhubFieldList" :key="f.key">
+              <option :value="f.name" x-text="f.name"></option>
+            </template>
+          </select>
         </div>
 
         <!-- Loading -->
@@ -1550,19 +1549,16 @@
             (token baca hanya perlu bila channel-nya privat).</p>
         </div>
 
-        <!-- Grafik: SATU grafik Chart.js per sensor yang dipilih.
+        <!-- Grafik: SATU grafik Chart.js untuk sensor yang dipilih.
              Pustaka + konfigurasi SAMA PERSIS dengan halaman channel
              karjoAgroSensorHub (chart.js 4.4.1, buildLineChartConfig):
              garis mulus, titik 3 px, tooltip "Nama: nilai satuan",
              sumbu Y berjudul satuan, legenda disembunyikan. -->
         <div x-show="!cloudHistoryLoading && !cloudHistoryError">
-          <p class="text-xs text-gray-500 mb-3" x-show="sensorhubFieldList.length"
-            x-text="sensorhubFields.length ? 'Pilih/lepas sensor di atas — tiap sensor punya grafiknya sendiri.' : ''"></p>
-
           <template x-for="(nama, i) in sensorhubChartFields" :key="'chart-' + nama">
             <div class="mb-4">
-              <h6 class="text-sm font-semibold mb-2 flex items-baseline gap-2">
-                <span class="inline-block h-2.5 w-2.5 rounded-full shrink-0 self-center"
+              <h6 class="text-sm font-semibold mb-2 flex items-center gap-2">
+                <span class="inline-block h-2.5 w-2.5 rounded-full shrink-0"
                   :style="`background:${sensorhubColor(i)}`"></span>
                 <span class="truncate" x-text="nama" :title="nama"></span>
                 <small class="text-gray-500" x-show="sensorhubSensorUnit(nama)"
@@ -1570,6 +1566,9 @@
                 <span class="ml-auto shrink-0 font-bold" x-text="sensorhubSensorValue(nama)"></span>
                 <span class="shrink-0 text-gray-500 text-xs" x-text="sensorhubSensorUnit(nama)"></span>
                 <span class="shrink-0 text-[10px] text-gray-500" x-text="sensorhubSensorTime(nama)"></span>
+                <button @click="downloadSensorhubCsv(nama)" class="btn icon-btn small shrink-0"
+                  :disabled="!sensorhubSensorStat(nama).count"
+                  title="Unduh data sensor ini (CSV)">⬇</button>
               </h6>
               <div style="position:relative;height:220px;">
                 <canvas :id="`sensorhub-chart-${i}`"></canvas>
@@ -1579,19 +1578,6 @@
               </p>
             </div>
           </template>
-
-          <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30] text-xs">
-            <h4 class="text-sm font-bold mb-2">Nilai Terakhir</h4>
-            <div class="grid grid-cols-2 gap-2">
-              <template x-for="(v, k) in sensorhubLatest" :key="'last-' + k">
-                <div>
-                  <span class="text-gray-500" x-text="k"></span>
-                  <span class="block font-bold" x-text="formatCloudValue(v)"></span>
-                </div>
-              </template>
-            </div>
-            <p class="text-gray-500" x-show="!Object.keys(sensorhubLatest).length">Belum ada data pada rentang ini.</p>
-          </div>
 
           <p class="text-xs text-gray-500 mt-3" x-show="!cloudHistoryLoading && cloudDataCount === 0">
             Belum ada data untuk node ini pada rentang waktu terpilih.
@@ -1631,7 +1617,7 @@
   <script src="mqtt.min.js"></script>
   <script src="chart.umd.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260923g"></script>
+  <script src="app.js?v=20260923h"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
