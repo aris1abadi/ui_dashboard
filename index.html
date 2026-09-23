@@ -362,10 +362,8 @@
         </div>
       </div>
       <div class="status-stack">
-        <button @click="openLogModal()" class="btn icon-btn" title="Log Aktivitas"
-          :disabled="actionInFlight">📋</button>
         <button x-show="cloudEnabled" @click="openCloudHistory()" class="btn icon-btn"
-          title="Riwayat Cloud">☁️</button>
+          title="Riwayat">☁️</button>
         <button @click="openSettings()" class="btn icon-btn" title="Setelan" :disabled="actionInFlight">⚙</button>
         <button x-show="canInstallPwa" @click="installPwa()" class="btn icon-btn" title="Pasang Aplikasi"
           :disabled="actionInFlight">⬇</button>
@@ -1279,115 +1277,6 @@
         <button @click="closeMoistureCalibration()" class="btn ghost">Batal</button>
         <button @click="saveMoistureCalibration()" class="btn primary" :disabled="actionInFlight">Simpan
           Kalibrasi</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- === Modal Log === -->
-  <div x-show="showLogModal" @keydown.escape.window="showLogModal = false" x-transition class="modal"
-    @click.self="showLogModal = false">
-    <div class="modal-card log">
-      <div class="modal-header">
-        <h3>📋 Log Aktivitas</h3><button @click="showLogModal = false" class="modal-close">×</button>
-      </div>
-      <div class="modal-body p-4 overflow-y-auto">
-        <!-- Tab System / Sensor -->
-        <div class="flex flex-wrap gap-2 mb-4">
-          <button @click="logFilter = 'system'" class="btn small"
-            :class="logFilter === 'system' ? 'primary' : 'ghost'">System</button>
-          <button @click="logFilter = 'sensor'" class="btn small"
-            :class="logFilter === 'sensor' ? 'primary' : 'ghost'">Sensor</button>
-          <button @click="showLogFilterPanel = !showLogFilterPanel" class="btn icon-btn small ml-auto" title="Filter & Download">⚙️</button>
-        </div>
-        <!-- Panel filter tanggal (collapsible) -->
-        <div x-show="showLogFilterPanel" class="mb-4 rounded-2xl border border-[#2a2a30] bg-black/20 p-3">
-          <div class="flex flex-wrap gap-2 mb-2">
-            <button @click="setLogDownloadPreset(1)" class="btn small ghost" :disabled="logDownload.busy">1 Hari</button>
-            <button @click="setLogDownloadPreset(7)" class="btn small ghost" :disabled="logDownload.busy">7 Hari</button>
-            <button @click="setLogDownloadPreset(30)" class="btn small ghost" :disabled="logDownload.busy">1 Bulan</button>
-          </div>
-          <div class="grid gap-2 md:grid-cols-[1fr_1fr_auto] md:items-end">
-            <label class="block">
-              <span class="block text-[10px] uppercase tracking-widest text-gray-500 mb-1">Dari</span>
-              <input x-model="logDownload.start" type="datetime-local"
-                class="w-full bg-[#202026] border border-[#2a2a30] p-2 rounded-xl text-white text-xs"
-                :disabled="logDownload.busy" />
-            </label>
-            <label class="block">
-              <span class="block text-[10px] uppercase tracking-widest text-gray-500 mb-1">Sampai</span>
-              <input x-model="logDownload.end" type="datetime-local"
-                class="w-full bg-[#202026] border border-[#2a2a30] p-2 rounded-xl text-white text-xs"
-                :disabled="logDownload.busy" />
-            </label>
-            <button @click="downloadSensorLogsCsv()" class="btn primary small h-fit md:mb-[2px]"
-              :disabled="logDownload.busy">Unduh CSV</button>
-          </div>
-          <div class="mt-2" x-show="logDownload.busy">
-            <div class="flex items-center justify-between text-xs text-gray-400 mb-1">
-              <span x-text="logDownload.status || 'Memproses...'"></span>
-              <span x-text="`${Math.round(logDownload.progress || 0)}%`"></span>
-            </div>
-            <div class="h-1.5 rounded-full bg-[#202026] overflow-hidden border border-[#2a2a30]">
-              <div class="h-full rounded-full bg-primary transition-all duration-200"
-                :style="{ width: `${Math.max(0, Math.min(100, logDownload.progress || 0))}%` }"></div>
-            </div>
-          </div>
-          <p class="mt-1 text-xs text-red-500" x-show="logDownload.error" x-text="logDownload.error"></p>
-        </div>
-        <div x-show="logFilter === 'sensor'">
-          <select x-model="logChartMetric" class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white text-sm mb-3">
-            <template x-for="metric in logChartMetrics" :key="metric.key">
-              <option :value="metric.key" x-text="metric.label"></option>
-            </template>
-          </select>
-          <template x-for="metric in logChartMetrics" :key="metric.key">
-            <div x-show="metric.key === logChartMetric">
-              <div class="log-chart-frame">
-                <div class="log-chart-surface"
-                  @pointermove="updateLogChartHover(metric.key, $event)"
-                  @mouseenter="updateLogChartHover(metric.key, $event)" @mouseleave="clearLogChartPoint()">
-                  <canvas :id="'chart-'+metric.key" class="log-chart-canvas"
-                    x-init="$nextTick(() => { const el = $el.parentElement; if (el) drawChart(metric.key, el); })">
-                  </canvas>
-                  <div class="log-chart-tooltip log-chart-tooltip-fixed"
-                    x-show="logChartActivePoint && logChartActivePoint.key === metric.key"
-                    :style="logChartActivePoint && logChartActivePoint.canvasX !== undefined ? `left:${logChartActivePoint.canvasX}px;top:${Math.max(logChartActivePoint.canvasY - 50, 4)}px` : ''">
-                    <div class="log-chart-tooltip-title" x-text="logChartActivePoint ? logChartActivePoint.label : ''">
-                    </div>
-                    <div class="log-chart-tooltip-subtitle"
-                      x-text="logChartActivePoint ? formatNilaiSensor(logChartActivePoint.value, logChartActivePoint.unit) : ''">
-                    </div>
-                    <div class="log-chart-tooltip-subtitle"
-                      x-text="logChartActivePoint ? formatLogTimestamp(logChartActivePoint.ts) : ''"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </template>
-        </div>
-        <div class="space-y-2">
-          <template x-for="(entry, index) in paginatedFilteredLogs" :key="`${logPage}-${index}-${entry.ts || index}`">
-            <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30]">
-              <div class="flex justify-between text-[10px] text-gray-500 mb-1">
-                <span x-text="getLogTypeName(entry.type)" class="font-bold text-primary"></span>
-                <span x-text="formatLogTimestamp(entry.ts)"></span>
-              </div>
-              <div class="text-xs" x-text="formatLogData(entry)"></div>
-            </div>
-          </template>
-          <p class="text-center py-8 text-gray-500" x-show="filteredLogs.length === 0">Belum ada data log.</p>
-          <div class="flex items-center justify-between gap-3 pt-3" x-show="filteredLogs.length > 0">
-            <button class="btn small ghost" @click="prevLogPage()" :disabled="logPage <= 0">Sebelumnya</button>
-            <div class="text-[11px] text-gray-500 text-center">
-              <span x-text="`Halaman ${Math.min(logPage + 1, logTotalPages)} dari ${logTotalPages}`"></span>
-              <span class="block" x-text="`${filteredLogs.length} log ditampilkan`"></span>
-            </div>
-            <button class="btn small ghost" @click="nextLogPage()" :disabled="logPage + 1 >= logTotalPages">Berikutnya</button>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button @click="clearLogs()" class="btn badge-danger small" :disabled="actionInFlight">Bersihkan Log</button>
       </div>
     </div>
   </div>
