@@ -779,8 +779,10 @@
           <label class="mt-3 block">Token Baca</label>
           <input type="password" placeholder="token dari deploy.env (SENSORHUB_READ_TOKEN)"
             x-model.lazy="config.cloudReadToken" autocomplete="off" />
-          <p class="help">Data node sensor disimpan SensorHub per SERIAL NUMBER node (SN-XXXX). Isi token
-            agar grafik bisa dibaca; lihat <b>deploy.env</b> → <b>SENSORHUB_READ_TOKEN</b>.</p>
+          <p class="help">Riwayat disimpan di SensorHub dengan pola <b>satu kontroler = satu channel</b>
+            (mis. <b>KA-24C2</b>), berisi sensor lokal kontroler + sensor semua node LoRa di bawahnya.
+            Channel publik bisa dibaca tanpa token; isi token bila diminta
+            (<b>deploy.env</b> → <b>SENSORHUB_READ_TOKEN</b>).</p>
         </div>
 
         <!-- Koneksi Lokal — hanya saat mode lokal atau offline -->
@@ -1583,7 +1585,7 @@
         <div>
           <h3 class="text-lg font-bold">📈 Riwayat Sensor</h3>
           <p class="text-xs text-gray-400"
-            x-text="sensorhubNode ? (sensorhubNode.sn + ' • ' + sensorhubNode.name + (sensorhubOwner ? ' • pemilik ' + sensorhubOwner : '')) : 'karjoAgroSensorHub'"></p>
+            x-text="sensorhubNode ? (sensorhubNodeLabel(sensorhubNode) + (sensorhubOwner ? ' • pemilik ' + sensorhubOwner : '')) : 'karjoAgroSensorHub'"></p>
         </div>
         <div class="flex items-center gap-2">
           <button @click="loadSensorHubNodes().then(() => fetchCloudData())" class="btn ghost small"
@@ -1592,16 +1594,16 @@
         </div>
       </div>
       <div class="modal-body">
-        <!-- Identitas data = SERIAL NUMBER node sensor (SN-XXXX) -->
+        <!-- Channel = kontroler (`KA-XXXX`, semua sensor) atau node tunggal (`SN-XXXX`) -->
         <div class="form-group">
-          <label>Node Sensor</label>
+          <label>Channel Sensor</label>
           <select x-model="sensorhubSn" @change="sensorhubFields = []; fetchCloudData()">
             <template x-for="n in sensorhubNodes" :key="n.sn">
-              <option :value="n.sn" x-text="`${n.sn} — ${n.name}${n.kontrol_id ? ' (' + n.kontrol_id + ')' : ''}`"></option>
+              <option :value="n.sn" x-text="sensorhubNodeLabel(n)"></option>
             </template>
           </select>
           <p class="help">Data dikirim kontroler lewat MQTT dan disimpan otomatis oleh
-            <b>karjoAgroSensorHub</b> per serial node (tanpa claim).
+            <b>karjoAgroSensorHub</b> per kontroler (tanpa claim).
             Pemilik sementara: <b x-text="sensorhubOwner || '—'"></b>
             <span x-show="sensorhubPublic">(sensor publik)</span>.
           </p>
@@ -1637,7 +1639,8 @@
         <!-- Error -->
         <div class="text-center py-4" x-show="!cloudHistoryLoading && cloudHistoryError">
           <p class="text-red-400 text-sm">⚠️ <span x-text="cloudHistoryError"></span></p>
-          <p class="text-xs text-gray-500 mt-2">Atur alamat Server SensorHub + token baca di Pengaturan → Koneksi.</p>
+          <p class="text-xs text-gray-500 mt-2">Atur alamat Server SensorHub di Pengaturan → Koneksi
+            (token baca hanya perlu bila channel-nya privat).</p>
         </div>
 
         <!-- Grafik + nilai terakhir -->
@@ -1726,7 +1729,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260919a"></script>
+  <script src="app.js?v=20260923a"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;

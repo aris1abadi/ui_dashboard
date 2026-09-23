@@ -4431,8 +4431,11 @@ function app() {
     },
 
     // ─── Riwayat & grafik dari karjoAgroSensorHub ───
-    // Data node sensor disimpan SensorHub (1 node = 1 channel, kunci SERIAL
-    // NODE `SN-XXXX`). Dashboard hanya membaca lewat /api/series dengan token.
+    // Satu KONTROLER = satu channel (kunci `KA-XXXX`): channel itu memuat sensor
+    // lokal kontroler + sensor semua node LoRa di bawahnya (nama field node
+    // berawalan `SN-XXXX • …`). Node yang tidak lewat kontroler tetap punya
+    // channel sendiri (`SN-XXXX`). Dibaca lewat /api/series; channel publik
+    // boleh dibaca tanpa token baca.
     showCloudModal: false,
     cloudHistory: [],
     cloudHistoryLoading: false,
@@ -4458,6 +4461,16 @@ function app() {
     },
     get sensorhubNode() {
       return this.sensorhubNodes.find((n) => n.sn === this.sensorhubSn) || null;
+    },
+    // Label pemilih channel: channel kontroler vs node tunggal.
+    sensorhubNodeLabel(n) {
+      const sn = n?.sn || '';
+      const nama = n?.name || '';
+      if (!sn) return nama || 'karjoAgroSensorHub';
+      if (n?.type === 'kontroler') {
+        return `Kontroler ${sn}` + (nama && nama !== `Kontroler ${sn}` ? ` — ${nama}` : ' (semua sensor)');
+      }
+      return nama && nama !== `Node ${sn}` ? `${sn} — ${nama}` : `Node ${sn}`;
     },
     get sensorhubFieldList() {
       return this.sensorhubNode?.fields || [];
@@ -4517,12 +4530,18 @@ function app() {
         if (!json.ok) throw new Error('Gagal memuat daftar node');
         this.sensorhubNodes = json.nodes || [];
 
-        // Prioritas: SN yang memang ada di payload sensor terkini (node yang
-        // sedang terhubung), lalu SN pertama yang tersedia.
+        // Prioritas pemilihan channel:
+        //   1. channel KONTROLER yang sedang dibuka (`kontrolId`, mis. KA-24C2)
+        //      — kini berisi SEMUA sensor kontroler itu,
+        //   2. node dari payload sensor terkini (yang sedang terhubung),
+        //   3. channel pertama yang tersedia.
         const snDiUi = [...new Set((this.sensors || []).map((s) => s.sn).filter(Boolean))];
+        const kontrol = `${this.cloudKontrolId || ''}`.trim().toUpperCase();
+        const cocokKontrol = this.sensorhubNodes.find((n) => `${n.sn || ''}`.toUpperCase() === kontrol)
+          || this.sensorhubNodes.find((n) => `${n.kontrol_id || ''}`.toUpperCase() === kontrol);
+        const cocokSensor = this.sensorhubNodes.find((n) => snDiUi.includes(n.sn));
         if (!this.sensorhubSn || !this.sensorhubNodes.some((n) => n.sn === this.sensorhubSn)) {
-          const cocok = this.sensorhubNodes.find((n) => snDiUi.includes(n.sn));
-          this.sensorhubSn = (cocok || this.sensorhubNodes[0])?.sn || '';
+          this.sensorhubSn = (cocokKontrol || cocokSensor || this.sensorhubNodes[0])?.sn || '';
         }
       } catch (err) {
         this.sensorhubNodes = [];
