@@ -4584,16 +4584,18 @@ function app() {
         const latest = await latestResp.json();
         if (!series.ok) throw new Error(series.detail || 'Gagal memuat data SensorHub');
 
-        // Bila belum ada kolom yang dipilih → pakai 3 kolom pertama node ini.
-        if (!this.sensorhubFields.length && this.sensorhubFieldList.length) {
-          this.sensorhubFields = this.sensorhubFieldList.slice(0, 3).map((f) => f.name);
-        }
-
+        // Set data dulu supaya pemilihan sensor awal tahu mana yang ada datanya.
         this.sensorhubSeries = series.data || [];
         this.cloudHistory = this.sensorhubSeries;
         this.cloudDataCount = series.count || this.sensorhubSeries.length;
         this.sensorhubLatest = latest.ok ? latest.latest || {} : {};
         this.sensorhubLatestAt = latest.ok ? latest.at || {} : {};
+
+        // Bila pengguna belum memilih sensor → pilih otomatis dari sensor yang
+        // punya data (bukan aktuator/relay), maks 2 grafik.
+        if (!this.sensorhubFields.length) {
+          this.sensorhubFields = this.sensorhubDefaultFields();
+        }
       } catch (err) {
         this.cloudHistoryError = err.message || 'Gagal terhubung ke SensorHub';
         this.sensorhubSeries = [];
@@ -4604,57 +4606,98 @@ function app() {
       }
     },
 
-    // Kolom yang benar-benar digambar (hanya yang ada nilainya).
+    // Sensor yang digrafikkan = yang DIPILIH pengguna. Bila belum ada pilihan,
+    // diambil otomatis dari sensor yang punya data (lihat `sensorhubDefaultFields`).
     get sensorhubChartFields() {
-      const series = this.sensorhubSeries || [];
-      const dipilih = this.sensorhubFields.length
-        ? this.sensorhubFields
-        : [...new Set(series.flatMap((row) => Object.keys(row).filter((k) => k !== 'ts')))];
-      const dipakai = dipilih.filter((name) => series.some((row) => typeof row[name] === 'number'));
-      return (dipakai.length ? dipakai : dipilih).slice(0, 4);
+      const dipilih = [...(this.sensorhubFields || [])];
+      if (dipilih.length) return dipilih;
+      return this.sensorhubDefaultFields();
     },
 
-    // Path SVG (viewBox 0 0 100 40) untuk satu kolom.
+    // Pilihan awal: sensor (bukan aktuator/relay) yang punya data, maks 2.
+    sensorhubDefaultFields() {
+      const daftar = (this.sensorhubFieldList || []).map((f) => f.name);
+      const adaData = (n) => (this.sensorhubSeries || []).some((r) => typeof r[n] === 'number');
+      const bukanAktuator = daftar.filter((n) => !/aktuator|relay|pompa|kipas|pump|fan/i.test(n));
+      const utama = bukanAktuator.filter(adaData);
+      const pilihan = utama.length ? utama : (bukanAktuator.length ? bukanAktuator : daftar);
+      return pilihan.slice(0, 2);
+    },
+
+    // Titik data satu sensor: [{ts, v}] (hanya nilai angka).
+    sensorhubSeriesFor(name) {
+      return (this.sensorhubSeries || [])
+        .map((row) => ({ ts: row.ts, v: Number(row[name]) }))
+        .filter((p) => Number.isFinite(p.v));
+    },
+    // Ringkasan satu sensor: nilai terakhir, min/max, jumlah titik, waktu akhir.
+    sensorhubSensorStat(name) {
+      const titik = this.sensorhubSeriesFor(name);
+      if (!titik.length) return { count: 0, last: null, min: null, max: null, at: null };
+      const nilai = titik.map((p) => p.v);
+      const akhir = titik[titik.length - 1];
+      return {
+        count: titik.length,
+        last: akhir.v,
+        at: akhir.ts,
+        min: Math.min(...nilai),
+        max: Math.max(...nilai),
+      };
+    },
+    sensorhubSensorValue(name) {
+      const stat = this.sensorhubSensorStat(name);
+      return stat.count ? this.formatCloudValue(stat.last) : '-';
+    },
+    sensorhubSensorTime(name) {
+      const stat = this.sensorhubSensorStat(name);
+      if (!stat.at) return '';
+      const d = new Date(stat.at);
+      return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    },
+    sensorhubSensorRange(name) {
+      const stat = this.sensorhubSensorStat(name);
+      if (!stat.count) return { min: '-', max: '-' };
+      return { min: stat.min.toFixed(1), max: stat.max.toFixed(1) };
+    },
+    // Satuan dibaca dari nama sensor (SensorHub tidak mengirim satuan).
+    sensorhubSensorUnit(name) {
+      const n = `${name || ''}`.toLowerCase();
+      if (/kelembapan|kelembaban|humidity|moisture|baterai|battery/.test(n)) return '%';
+      if (/suhu|temperature|temp/.test(n)) return '°C';
+      if (/ketinggian|tinggi|level|jarak|distance|hc-sr04/.test(n)) return 'cm';
+      if (/\bph\b/.test(n)) return 'pH';
+      if (/\bec\b/.test(n)) return 'mS/cm';
+      if (/\borp\b/.test(n)) return 'mV';
+      return '';
+    },
+
+    // Path SVG (viewBox 0 0 100 40) untuk SATU sensor — skala milik sensor itu
+    // sendiri, supaya sensor dengan satuan berbeda tidak saling menekan.
     sensorhubChartPath(name) {
       const series = this.sensorhubSeries || [];
       if (!series.length) return '';
-      const semua = [];
-      this.sensorhubChartFields.forEach((f) => {
-        series.forEach((row) => {
-          const v = Number(row[f]);
-          if (Number.isFinite(v)) semua.push(v);
-        });
+      const nilai = [];
+      series.forEach((row) => {
+        const v = Number(row[name]);
+        if (Number.isFinite(v)) nilai.push(v);
       });
-      let min = Math.min(...semua);
-      let max = Math.max(...semua);
-      if (!Number.isFinite(min) || !Number.isFinite(max)) return '';
+      if (!nilai.length) return '';
+      let min = Math.min(...nilai);
+      let max = Math.max(...nilai);
       if (max - min < 0.0001) {
         max += 1;
         min -= 1;
       }
+      const total = series.length - 1;
       const titik = [];
       series.forEach((row, i) => {
         const v = Number(row[name]);
         if (!Number.isFinite(v)) return;
-        const x = series.length === 1 ? 50 : (i / (series.length - 1)) * 100;
+        const x = total === 0 ? 50 : (i / total) * 100;
         const y = 38 - ((v - min) / (max - min)) * 36;
         titik.push(`${x.toFixed(2)},${y.toFixed(2)}`);
       });
       return titik.join(' ');
-    },
-    sensorhubChartRange() {
-      const series = this.sensorhubSeries || [];
-      const nilai = [];
-      this.sensorhubChartFields.forEach((f) => {
-        series.forEach((row) => {
-          const v = Number(row[f]);
-          if (Number.isFinite(v)) nilai.push(v);
-        });
-      });
-      if (!nilai.length) return { min: '-', max: '-' };
-      const min = Math.min(...nilai);
-      const max = Math.max(...nilai);
-      return { min: min.toFixed(1), max: max.toFixed(1) };
     },
 
     formatCloudTime(iso) {

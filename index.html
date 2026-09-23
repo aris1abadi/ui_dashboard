@@ -1623,7 +1623,7 @@
             @click="cloudDateRange='30d'; fetchCloudData()">30 Hari</button>
         </div>
 
-        <!-- Pilih kolom yang digrafikkan -->
+        <!-- Pilih sensor yang digrafikkan (tiap sensor = satu grafik sendiri) -->
         <div class="flex gap-2 mb-4 flex-wrap" x-show="sensorhubFieldList.length">
           <template x-for="(f, i) in sensorhubFieldList" :key="f.key">
             <button class="btn small" :class="sensorhubFieldSelected(f.name) ? 'primary' : 'ghost'"
@@ -1643,42 +1643,44 @@
             (token baca hanya perlu bila channel-nya privat).</p>
         </div>
 
-        <!-- Grafik + nilai terakhir -->
+        <!-- Grafik: SATU grafik per sensor yang dipilih (skala & satuan
+             sendiri-sendiri, seperti di halaman channel SensorHub).
+             Catatan: <template x-for> di dalam <svg> TIDAK dipakai karena
+             parser HTML saat build (Vite) gagal mem-parse SVG + template. -->
         <div x-show="!cloudHistoryLoading && !cloudHistoryError">
-          <div class="bg-[#16161a] border border-[#2a2a30] rounded-xl p-3 mb-3">
-            <!-- Catatan: TIDAK memakai <template x-for> di dalam <svg> karena
-                 parser HTML saat build (Vite) gagal mem-parse elemen SVG +
-                 template. Cukup 4 polyline (batas kolom grafik = 4). -->
-            <svg viewBox="0 0 100 40" preserveAspectRatio="none"
-              style="width:100%;height:180px;display:block;overflow:visible;">
-              <polyline x-show="sensorhubChartFields[0]" :points="sensorhubChartPath(sensorhubChartFields[0])"
-                fill="none" :stroke="sensorhubColor(0)" stroke-width="1.4" stroke-linejoin="round"
-                stroke-linecap="round" vector-effect="non-scaling-stroke" />
-              <polyline x-show="sensorhubChartFields[1]" :points="sensorhubChartPath(sensorhubChartFields[1])"
-                fill="none" :stroke="sensorhubColor(1)" stroke-width="1.4" stroke-linejoin="round"
-                stroke-linecap="round" vector-effect="non-scaling-stroke" />
-              <polyline x-show="sensorhubChartFields[2]" :points="sensorhubChartPath(sensorhubChartFields[2])"
-                fill="none" :stroke="sensorhubColor(2)" stroke-width="1.4" stroke-linejoin="round"
-                stroke-linecap="round" vector-effect="non-scaling-stroke" />
-              <polyline x-show="sensorhubChartFields[3]" :points="sensorhubChartPath(sensorhubChartFields[3])"
-                fill="none" :stroke="sensorhubColor(3)" stroke-width="1.4" stroke-linejoin="round"
-                stroke-linecap="round" vector-effect="non-scaling-stroke" />
-            </svg>
-            <div class="flex justify-between text-[10px] text-gray-500 mt-2 uppercase tracking-widest">
-              <span x-text="'min ' + sensorhubChartRange().min"></span>
-              <span x-text="cloudDataCount + ' titik'"></span>
-              <span x-text="'max ' + sensorhubChartRange().max"></span>
-            </div>
-          </div>
+          <p class="text-xs text-gray-500 mb-2" x-show="sensorhubFieldList.length"
+            x-text="sensorhubFields.length ? 'Pilih/lepas sensor di atas — tiap sensor punya grafiknya sendiri.' : ''"></p>
 
-          <div class="flex gap-3 flex-wrap mb-3">
-            <template x-for="(f, i) in sensorhubChartFields" :key="'leg-' + f">
-              <span class="text-xs flex items-center gap-2">
-                <span class="inline-block h-2 w-4 rounded-full" :style="`background:${sensorhubColor(i)}`"></span>
-                <span x-text="f"></span>
-              </span>
-            </template>
-          </div>
+          <template x-for="(nama, i) in sensorhubChartFields" :key="'chart-' + nama">
+            <div class="bg-[#16161a] border border-[#2a2a30] rounded-xl p-3 mb-3">
+              <div class="flex justify-between items-start gap-3 mb-2">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="inline-block h-2.5 w-2.5 rounded-full shrink-0"
+                    :style="`background:${sensorhubColor(i)}`"></span>
+                  <span class="text-sm font-semibold truncate" x-text="nama" :title="nama"></span>
+                </div>
+                <div class="text-right shrink-0 leading-tight">
+                  <span class="font-bold" x-text="sensorhubSensorValue(nama)"></span>
+                  <span class="text-gray-500 text-xs" x-text="sensorhubSensorUnit(nama)"></span>
+                  <span class="block text-[10px] text-gray-500" x-text="sensorhubSensorTime(nama)"></span>
+                </div>
+              </div>
+              <svg viewBox="0 0 100 40" preserveAspectRatio="none"
+                style="width:100%;height:130px;display:block;overflow:visible;">
+                <polyline :points="sensorhubChartPath(nama)" fill="none" :stroke="sensorhubColor(i)"
+                  stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"
+                  vector-effect="non-scaling-stroke" />
+              </svg>
+              <div class="flex justify-between text-[10px] text-gray-500 mt-2 uppercase tracking-widest">
+                <span x-text="'min ' + sensorhubSensorRange(nama).min"></span>
+                <span x-text="sensorhubSensorStat(nama).count + ' titik'"></span>
+                <span x-text="'max ' + sensorhubSensorRange(nama).max"></span>
+              </div>
+              <p class="text-xs text-gray-500 mt-1" x-show="!sensorhubSensorStat(nama).count">
+                Belum ada data sensor ini pada rentang waktu terpilih.
+              </p>
+            </div>
+          </template>
 
           <div class="bg-[#202026] p-3 rounded-lg border border-[#2a2a30] text-xs">
             <h4 class="text-sm font-bold mb-2">Nilai Terakhir</h4>
@@ -1729,7 +1731,7 @@
 
   <script src="mqtt.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260923a"></script>
+  <script src="app.js?v=20260923b"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
