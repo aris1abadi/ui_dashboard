@@ -1713,7 +1713,7 @@ function app() {
           this.startMqttPolling();
         }
       });
-      this.mqttClient.on('message', (topic, message) => this.handleMqttMessage(topic, message.toString()));
+      this.mqttClient.on('message', (topic, message, packet) => this.handleMqttMessage(topic, message.toString(), !!packet?.retain));
       this.mqttClient.on('close', () => {
         if (this.mqttConnectAttemptId !== attemptId) return;
         if (this.mode === 'mqtt') {
@@ -1733,7 +1733,7 @@ function app() {
         }
       });
     },
-    handleMqttMessage(topic, muatan) { 
+    handleMqttMessage(topic, muatan, retained = false) { 
       const cmd = topic.substring(topic.lastIndexOf('/')+1); 
       if(cmd === 'respStatus') this.applyNetworkScope(parseStatusJson(muatan)); 
       if(cmd === 'respLogin') {
@@ -1797,10 +1797,14 @@ function app() {
         this.syncFuelCalibrationFromSensors();
       }
       if(cmd === 'respActuator') this.actuators = parseActuatorsJson(muatan); 
-      if(cmd === 'respTask' && !this.localPollingPaused) {
-        this.mergeTasks(parseTasksJson(muatan));
-        // Balasan perangkat = perintah task benar-benar diterima & tersimpan.
-        if (this.pendingTaskSave) this.finishTaskSave(true);
+      if(cmd === 'respTask') {
+        const daftarTask = parseTasksJson(muatan);
+        // Saat modal task terbuka, poll berkala diabaikan agar isian pengguna
+        // tidak tertimpa — TETAPI balasan yang menjawab perintah kita
+        // (pendingTaskSave) harus tetap dipakai, kalau tidak hasil simpan
+        // tidak pernah terlihat.
+        if (!this.localPollingPaused || this.pendingTaskSave) this.mergeTasks(daftarTask);
+        this.konfirmasiTaskTersimpan(retained, daftarTask);
       }
       if(cmd === 'respLogs' || cmd === 'logs') {
         const parsedLogs = parsePayloadKontrol(muatan);
@@ -3288,22 +3292,55 @@ function app() {
         // Tunggu balasan perangkat sebelum bilang "tersimpan": kalau kontroler
         // tidak merespons (mis. sedang offline), perubahan TIDAK diterapkan dan
         // pengguna harus tahu, bukan dapat notifikasi palsu.
-        this.startTaskSaveWatch(perintah.task?.label || '');
+        this.startTaskSaveWatch(perintah);
         this.showTaskModal = false;
         this.showAllTasksModal = false;
         this.endAction();
       }
     },
     // ── Umpan balik penyimpanan task (mode online) ───────────────────────
-    // Perangkat membalas respTask (sukses) atau respError (gagal). Bila tidak ada
-    // balasan dalam batas waktu, beri tahu bahwa perubahan BELUM tentu tersimpan.
-    startTaskSaveWatch(label) {
+    // Perangkat membalas respTask (daftar terbaru) atau respError. Balasan itu
+    // juga harus BENAR-BENAR berisi nilai yang kita kirim — kalau tidak (mis.
+    // yang datang cuma salinan lama), jangan bilang "tersimpan".
+    startTaskSaveWatch(perintah) {
       this.finishTaskSave();
-      this.pendingTaskSave = { label, timer: setTimeout(() => {
-        if (!this.pendingTaskSave) return;
-        this.pendingTaskSave = null;
-        this.showToast('Kontroler tidak merespons — perubahan task belum tentu tersimpan.', 'warn');
-      }, 6000) };
+      const task = perintah?.task || {};
+      const index = Number(perintah?.index ?? task.index ?? -1);
+      this.pendingTaskSave = {
+        index: Number.isFinite(index) ? index : -1,
+        task,
+        timer: setTimeout(() => {
+          if (!this.pendingTaskSave) return;
+          this.pendingTaskSave = null;
+          this.showToast('Kontroler tidak merespons — perubahan task belum tentu tersimpan.', 'warn');
+        }, 6000),
+      };
+    },
+    // `retained=true` = salinan baseline dari broker/perangkat (dikirim saat
+    // perangkat tersambung), BUKAN jawaban perintah → tidak boleh dianggap bukti.
+    konfirmasiTaskTersimpan(retained, daftar) {
+      const pending = this.pendingTaskSave;
+      if (!pending) return;
+      if (retained) return;
+      const tugas = pending.index >= 0
+        ? daftar.find(t => Number(t.index) === pending.index)
+        : daftar.find(t => `${t.label}`.trim() === `${pending.task.label || ''}`.trim());
+      if (tugas && this.taskSesuaiPermintaan(tugas, pending.task)) {
+        this.finishTaskSave(true);
+        return;
+      }
+      this.finishTaskSave(false, 'Kontroler membalas data lama — perubahan belum tersimpan.');
+    },
+    // Bandingkan field penting hasil balasan dengan yang kita kirim.
+    taskSesuaiPermintaan(tugas, permintaan) {
+      const angka = (v) => Number(v);
+      return angka(tugas.sensorNode) === angka(permintaan.sensorNode) &&
+        angka(tugas.sensorChild) === angka(permintaan.sensorChild) &&
+        angka(tugas.actuatorIndex) === angka(permintaan.actuatorIndex) &&
+        angka(tugas.activateDurationMs) === angka(permintaan.activateDurationMs) &&
+        angka(tugas.threshold) === angka(permintaan.threshold) &&
+        !!tugas.thresholdEnabled === !!permintaan.thresholdEnabled &&
+        !!tugas.thresholdAbove === !!permintaan.thresholdAbove;
     },
     finishTaskSave(sukses = null, pesan = '') {
       const pending = this.pendingTaskSave;
