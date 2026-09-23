@@ -3321,9 +3321,15 @@ function app() {
       this.finishTaskSave();
       const task = perintah?.task || {};
       const index = Number(perintah?.index ?? task.index ?? -1);
+      const idx = Number.isFinite(index) ? index : -1;
+      // Simpan data SEBELUM disimpan: yang perlu diverifikasi hanya field yang
+      // benar-benar diubah pengguna. Field lain bisa "dinormalkan" perangkat
+      // (mis. durasi dibulatkan) dan TIDAK boleh dianggap gagal simpan.
+      const sebelum = idx >= 0 ? (this.tasks || []).find(t => Number(t.index) === idx) || null : null;
       this.pendingTaskSave = {
-        index: Number.isFinite(index) ? index : -1,
+        index: idx,
         task,
+        sebelum,
         timer: setTimeout(() => {
           if (!this.pendingTaskSave) return;
           this.pendingTaskSave = null;
@@ -3334,6 +3340,25 @@ function app() {
         }, 6000),
       };
     },
+    // Field yang nilainya benar-benar berbeda dari data SEBELUM disimpan.
+    fieldTaskBerubah(lama, baru) {
+      const kunci = ['sensorNode', 'sensorChild', 'actuatorIndex', 'activateDurationMs',
+                     'threshold', 'thresholdEnabled', 'thresholdAbove'];
+      if (!lama) return kunci; // task baru → semua field dianggap perubahan
+      return kunci.filter(k => !this.nilaiFieldTaskSama(k, lama[k], baru[k]));
+    },
+    nilaiFieldTaskSama(k, a, b) {
+      if (k === 'thresholdEnabled' || k === 'thresholdAbove') return !!a === !!b;
+      return Number(a) === Number(b);
+    },
+    labelFieldTask(k) {
+      const nama = {
+        sensorNode: 'node sensor', sensorChild: 'child sensor', actuatorIndex: 'aktuator',
+        activateDurationMs: 'durasi', threshold: 'ambang batas',
+        thresholdEnabled: 'otomasi ambang', thresholdAbove: 'arah ambang',
+      };
+      return nama[k] || k;
+    },
     // `retained=true` = salinan baseline dari broker/perangkat (dikirim saat
     // perangkat tersambung), BUKAN jawaban perintah → tidak boleh dianggap bukti.
     konfirmasiTaskTersimpan(retained, daftar) {
@@ -3343,22 +3368,18 @@ function app() {
       const tugas = pending.index >= 0
         ? daftar.find(t => Number(t.index) === pending.index)
         : daftar.find(t => `${t.label}`.trim() === `${pending.task.label || ''}`.trim());
-      if (tugas && this.taskSesuaiPermintaan(tugas, pending.task)) {
+      if (!tugas) {
+        this.finishTaskSave(false, 'Kontroler tidak mengirim data task yang disimpan.');
+        return;
+      }
+      const diubah = this.fieldTaskBerubah(pending.sebelum, pending.task);
+      const gagal = diubah.filter(k => !this.nilaiFieldTaskSama(k, tugas[k], pending.task[k]));
+      if (!gagal.length) {
         this.finishTaskSave(true);
         return;
       }
-      this.finishTaskSave(false, 'Kontroler membalas data lama — perubahan belum tersimpan.');
-    },
-    // Bandingkan field penting hasil balasan dengan yang kita kirim.
-    taskSesuaiPermintaan(tugas, permintaan) {
-      const angka = (v) => Number(v);
-      return angka(tugas.sensorNode) === angka(permintaan.sensorNode) &&
-        angka(tugas.sensorChild) === angka(permintaan.sensorChild) &&
-        angka(tugas.actuatorIndex) === angka(permintaan.actuatorIndex) &&
-        angka(tugas.activateDurationMs) === angka(permintaan.activateDurationMs) &&
-        angka(tugas.threshold) === angka(permintaan.threshold) &&
-        !!tugas.thresholdEnabled === !!permintaan.thresholdEnabled &&
-        !!tugas.thresholdAbove === !!permintaan.thresholdAbove;
+      this.finishTaskSave(false,
+        `Kontroler belum menerapkan: ${gagal.map(k => this.labelFieldTask(k)).join(', ')}.`);
     },
     finishTaskSave(sukses = null, pesan = '') {
       const pending = this.pendingTaskSave;
