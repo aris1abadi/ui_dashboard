@@ -526,10 +526,19 @@ function app() {
       return 'Tidak tersambung';
     },
     get isControllerResponsive() {
-      if (!this.lastUpdate) return false;
-      const updatedAt = this.lastUpdate instanceof Date ? this.lastUpdate.getTime() : new Date(this.lastUpdate).getTime();
-      if (!Number.isFinite(updatedAt)) return false;
-      return Date.now() - updatedAt <= 45000;
+      // Hanya data LIVE (langsung dari perangkat lewat MQTT/lokal) yang dihitung.
+      // Snapshot VPS TIDAK dihitung — kalau dihitung, dashboard mengira
+      // kontroler masih hidup (badge hijau) padahal yang tampil salinan lama.
+      const t = Number(this.lastLiveUpdate);
+      if (!Number.isFinite(t) || t <= 0) return false;
+      return Date.now() - t <= 45000;
+    },
+    // Data live baru diterima dari kontroler → tandai hidup.
+    tandaiKontrolerHidup() {
+      this.lastLiveUpdate = Date.now();
+      this._pernahLive = true;
+      // Outage berikutnya boleh diberi tahu sekali lagi.
+      this._vpsSnapshotNotified = false;
     },
     get statusBadge() { 
       const id = this.config?.mqtt?.kontrolId || '...';
@@ -563,7 +572,8 @@ function app() {
     get headerStatusTitle() {
       const base = this.headerStatus.text;
       const version = `${this.network?.firmwareVersion || ''}`.trim();
-      return version ? `${base} • ${this.firmwareLabel}` : base;
+      const label = version ? `${base} • ${this.firmwareLabel}` : base;
+      return this.isControllerResponsive ? label : `${label} • kontroler belum merespons`;
     },
     get firmwareLabel() {
       const name = `${this.network?.firmwareName || ''}`.trim();
@@ -1823,6 +1833,7 @@ function app() {
         this.applyLogPayload(muatan);
       }
       this.lastUpdate = new Date(); 
+      this.tandaiKontrolerHidup();
       this.endAction(); 
     },
     startLocalPolling() {
@@ -1918,6 +1929,7 @@ function app() {
         this.syncDistanceCalibrationFromSensors();
         this.syncFuelCalibrationFromSensors();
         this.lastUpdate = new Date();
+        this.tandaiKontrolerHidup();
         return true;
       } catch {
         return false;
@@ -2309,6 +2321,7 @@ function app() {
           this.sensors = this.mergeSensors(parseSensorsJson(sensorData));
           this.syncMoistureCalibrationFromSensors();
           this.lastUpdate = new Date();
+          this.tandaiKontrolerHidup();
           return true;
         } catch {
           return false;
@@ -2497,6 +2510,7 @@ function app() {
           this.sensors = this.mergeSensors(parseSensorsJson(sensorData));
           this.syncDistanceCalibrationFromSensors();
           this.lastUpdate = new Date();
+          this.tandaiKontrolerHidup();
           return true;
         } catch {
           return false;
@@ -2819,6 +2833,7 @@ function app() {
           this.sensors = this.mergeSensors(parseSensorsJson(sensorData));
           this.syncFuelCalibrationFromSensors();
           this.lastUpdate = new Date();
+          this.tandaiKontrolerHidup();
           return true;
         } catch {
           return false;
@@ -3312,6 +3327,9 @@ function app() {
         timer: setTimeout(() => {
           if (!this.pendingTaskSave) return;
           this.pendingTaskSave = null;
+          // Tidak ada balasan = perangkat tidak merespons → tandai offline
+          // supaya badge header (baris ID) langsung kuning, tidak menunggu 45 s.
+          this.lastLiveUpdate = null;
           this.showToast('Kontroler tidak merespons — perubahan task belum tentu tersimpan.', 'warn');
         }, 6000),
       };
@@ -4560,6 +4578,9 @@ function app() {
     vpsState: null,        // {age_s, last_seen, online, diambil}
     vpsStateBusy: false,
     vpsStateTimer: null,
+    // Kapan terakhir data LIVE dari kontroler diterima (MQTT/lokal). Dipakai
+    // untuk badge header: hijau = perangkat merespons, kuning/merah = tidak.
+    lastLiveUpdate: null,
     // Menunggu balasan perangkat setelah menyimpan task (mode online).
     pendingTaskSave: null,
 
@@ -4638,7 +4659,7 @@ function app() {
     // sederhana: pengguna tidak perlu tahu soal VPS/snapshot.
     showKontrolOfflineInfo() {
       const label = `${this.cloudKontrolId || ''}`.trim() || 'Kontroler';
-      if (this.isLiveConnected) {
+      if (this.isControllerResponsive) {
         this.showToast(`${label} tersambung — data langsung dari kontroler.`);
         return;
       }
@@ -4653,7 +4674,10 @@ function app() {
     // Ambil snapshot dari SensorHub. Hanya saat TIDAK live (kalau live, snapshot
     // dibuang supaya data langsung dari perangkat yang dipakai).
     async syncVpsState() {
-      if (this.isLiveConnected) {
+      // `isControllerResponsive` = perangkat benar-benar mengirim data, bukan
+      // sekadar broker tersambung (dulu memakai isLiveConnected → snapshot tetap
+      // diambil walau perangkat sudah hidup, memicu notifikasi "offline" palsu).
+      if (this.isControllerResponsive) {
         if (this.vpsState) this.vpsState = null;
         return;
       }
@@ -4686,7 +4710,6 @@ function app() {
     // payload kontroler (respStatus/respTask/respSensor/respActuator) langsung
     // bisa dipakai tanpa kode khusus.
     applyVpsSnapshot(data) {
-      const kosongSebelumnya = !this.sensors.length && !this.tasks.length;
       let diisi = false;
       try {
         if (data.status) {
@@ -4719,7 +4742,11 @@ function app() {
       };
       // Beri tahu sekali (saat benar-benar kosong sebelumnya) supaya pengguna tahu
       // data ini snapshot, bukan live.
-      if (kosongSebelumnya && !this._vpsSnapshotNotified) {
+      // Beri tahu SEKALI per outage — dan hanya kalau perangkat memang pernah
+      // hidup di sesi ini. Tanpa syarat itu, snapshot yang tiba lebih dulu saat
+      // halaman dibuka selalu memunculkan "kontroler sedang offline" padahal
+      // perangkat sehat (notifikasi palsu).
+      if (!this._vpsSnapshotNotified && this._pernahLive && !this.isControllerResponsive) {
         this._vpsSnapshotNotified = true;
         this.showToast(`Kontroler sedang offline — menampilkan data terakhir (${this.vpsStateAgeText || 'tersimpan'}).`, 'warn');
       }
