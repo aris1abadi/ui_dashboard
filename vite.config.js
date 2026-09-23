@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 // build tidak punya app.js/alpine.min.js/mqtt.min.js/sw.js sama sekali.
 // File disalin apa adanya dari root repo supaya tetap satu sumber kebenaran
 // (hosting dari branch root juga tetap jalan).
-const STATIC_FILES = ['mqtt.min.js', 'alpine.min.js', 'app.js', 'sw.js', 'offline.html', 'manifest.webmanifest', 'icon.svg'];
+const STATIC_FILES = ['mqtt.min.js', 'alpine.min.js', 'chart.umd.min.js', 'app.js', 'sw.js', 'offline.html', 'manifest.webmanifest', 'icon.svg'];
 
 function copyStaticFiles() {
   let root = process.cwd();

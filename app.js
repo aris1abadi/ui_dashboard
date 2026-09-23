@@ -319,6 +319,13 @@ function parseLocalDateTimeInput(value) {
 }
 
 // --- KOMPONEN ALPINE.JS ---
+// Instance Chart.js disimpan di LUAR state Alpine: Alpine memproksi objek
+// reaktif, sedangkan Chart.js membandingkan identitas objek internalnya
+// (proxy membuat chart.destroy()/update() bermasalah).
+const sensorhubChartInstances = {};
+// Palet warna grafik — SAMA PERSIS dengan SensorHub (channel_detail.html).
+const sensorhubChartPalette = ['#FF1A75', '#ff8a65', '#81c784', '#ba68c8', '#fff176', '#4db6ac', '#e57373', '#90a4ae'];
+
 function app() {
   return {
     // State utama
@@ -4496,8 +4503,10 @@ function app() {
       this.fetchCloudData();
     },
     sensorhubColor(index) {
-      const palette = ['#25f4b8', '#4aa3ff', '#ffb84a', '#ff6b9d', '#a78bfa', '#7dd3fc'];
-      return palette[index % palette.length];
+      // Palet SAMA dengan SensorHub (channel_detail.html `colors`) supaya warna
+      // grafik dashboard identik dengan halaman channel SensorHub.
+      const p = sensorhubChartPalette;
+      return p[index % p.length];
     },
     get cloudKontrolId() {
       return this.mqttKontrolId || this.login.kontrolId || this.config.mqtt.kontrolId;
@@ -4512,6 +4521,7 @@ function app() {
     },
     closeCloudHistory() {
       this.showCloudModal = false;
+      this.destroySensorhubCharts();
       this.cloudHistory = [];
       this.sensorhubSeries = [];
       this.cloudHistoryError = '';
@@ -4551,6 +4561,7 @@ function app() {
 
     async fetchCloudData() {
       if (!this.cloudEnabled || !this.sensorhubSn) {
+        this.destroySensorhubCharts();
         this.sensorhubSeries = [];
         this.cloudHistory = [];
         return;
@@ -4604,6 +4615,8 @@ function app() {
       } finally {
         this.cloudHistoryLoading = false;
       }
+      // Gambar grafik SETELAH container terlihat (Chart.js butuh ukuran elemen).
+      await this.renderSensorhubCharts();
     },
 
     // Sensor yang digrafikkan = yang DIPILIH pengguna. Bila belum ada pilihan,
@@ -4671,33 +4684,97 @@ function app() {
       return '';
     },
 
-    // Path SVG (viewBox 0 0 100 40) untuk SATU sensor — skala milik sensor itu
-    // sendiri, supaya sensor dengan satuan berbeda tidak saling menekan.
-    sensorhubChartPath(name) {
+    // ── Grafik Chart.js — konfigurasi SAMA dengan SensorHub ──────────────
+    // Sumber: karjoAgroSensorHub/backend/templates/channel_detail.html
+    //         (`buildLineChartConfig`, `getTimeLabels`).
+    // Tema gelap dipakai karena dashboard selalu gelap (nilai dari
+    // applyChartTheme() SensorHub saat mode dark).
+    sensorhubTimeLabels() {
+      return (this.sensorhubSeries || []).map((row) => {
+        const t = `${row.ts || ''}`.replace('T', ' ');
+        return t.length >= 16 ? t.substring(11, 19) : t;
+      });
+    },
+    sensorhubChartConfig(nama, index) {
+      const unit = this.sensorhubSensorUnit(nama);
+      const color = this.sensorhubColor(index);
       const series = this.sensorhubSeries || [];
-      if (!series.length) return '';
-      const nilai = [];
-      series.forEach((row) => {
-        const v = Number(row[name]);
-        if (Number.isFinite(v)) nilai.push(v);
+      const values = series.map((row) => {
+        const v = row[nama];
+        return v === null || v === undefined ? null : Number(v);
       });
-      if (!nilai.length) return '';
-      let min = Math.min(...nilai);
-      let max = Math.max(...nilai);
-      if (max - min < 0.0001) {
-        max += 1;
-        min -= 1;
-      }
-      const total = series.length - 1;
-      const titik = [];
-      series.forEach((row, i) => {
-        const v = Number(row[name]);
-        if (!Number.isFinite(v)) return;
-        const x = total === 0 ? 50 : (i / total) * 100;
-        const y = 38 - ((v - min) / (max - min)) * 36;
-        titik.push(`${x.toFixed(2)},${y.toFixed(2)}`);
+      return {
+        type: 'line',
+        data: {
+          labels: this.sensorhubTimeLabels(),
+          datasets: [{
+            label: nama,
+            data: values,
+            borderColor: color,
+            backgroundColor: color + '33',
+            borderWidth: 2,
+            pointRadius: 3,
+            tension: 0.3,
+            spanGaps: true,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 300 },
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                title: (items) => {
+                  const f = series[items[0].dataIndex];
+                  const t = `${f?.ts || ''}`.replace('T', ' ');
+                  return t.length >= 16 ? t.substring(0, 19) : t;
+                },
+                label: (ctx) => `${nama}: ${ctx.parsed.y}${unit ? ' ' + unit : ''}`,
+              },
+            },
+          },
+          scales: {
+            x: {
+              ticks: { color: '#8888aa', maxTicksLimit: 10, maxRotation: 45 },
+              grid: { color: '#2a2a4a' },
+            },
+            y: {
+              title: { display: !!unit, text: unit || '', color: '#8888aa' },
+              beginAtZero: false,
+              ticks: { color: '#8888aa' },
+              grid: { color: '#2a2a4a' },
+            },
+          },
+        },
+      };
+    },
+    sensorhubChartCanvas(index) {
+      return document.getElementById(`sensorhub-chart-${index}`);
+    },
+    destroySensorhubCharts() {
+      Object.keys(sensorhubChartInstances).forEach((key) => {
+        try {
+          sensorhubChartInstances[key].destroy();
+        } catch {
+          /* instance sudah tidak valid — diabaikan */
+        }
+        delete sensorhubChartInstances[key];
       });
-      return titik.join(' ');
+    },
+    // Gambar ulang semua grafik (satu canvas per sensor terpilih). Selalu
+    // dibuat ulang dari nol supaya urutan canvas cocok dengan daftar sensor.
+    async renderSensorhubCharts() {
+      if (typeof Chart === 'undefined') return; // pustaka belum termuat
+      this.destroySensorhubCharts();
+      await this.$nextTick();
+      this.sensorhubChartFields.forEach((nama, i) => {
+        const canvas = this.sensorhubChartCanvas(i);
+        if (!canvas) return;
+        sensorhubChartInstances[nama] = new Chart(canvas.getContext('2d'), this.sensorhubChartConfig(nama, i));
+      });
     },
 
     formatCloudTime(iso) {

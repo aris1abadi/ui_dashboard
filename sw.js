@@ -1,4 +1,4 @@
-const CACHE_NAME = 'karjoagro-ui-v37';
+const CACHE_NAME = 'karjoagro-ui-v39';
 // HANYA file yang benar-benar ada di hasil build (dist/) maupun di root repo.
 // File yang tidak ada membuat cache.addAll() gagal → service worker tidak pernah
 // terpasang. Aset ber-hash (CSS/icon/manifest) masuk cache saat runtime.
@@ -7,6 +7,7 @@ const PRECACHE_URLS = [
   './index.html',
   './app.js',
   './alpine.min.js',
+  './chart.umd.min.js',
   './mqtt.min.js',
   './offline.html',
 ];
