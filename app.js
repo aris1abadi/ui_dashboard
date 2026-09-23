@@ -1770,6 +1770,7 @@ function app() {
       }
       if(cmd === 'respError' || cmd === 'respInfo') {
         const info = parsePayloadKontrol(muatan);
+        if (this.pendingTaskSave) this.finishTaskSave(false, info.error || info.message || '');
         if (!toBool(info.ok)) {
           const pesan = `${info.error || info.message || ''}`.trim();
           if (/login required/i.test(pesan)) {
@@ -1796,7 +1797,11 @@ function app() {
         this.syncFuelCalibrationFromSensors();
       }
       if(cmd === 'respActuator') this.actuators = parseActuatorsJson(muatan); 
-      if(cmd === 'respTask' && !this.localPollingPaused) this.mergeTasks(parseTasksJson(muatan)); 
+      if(cmd === 'respTask' && !this.localPollingPaused) {
+        this.mergeTasks(parseTasksJson(muatan));
+        // Balasan perangkat = perintah task benar-benar diterima & tersimpan.
+        if (this.pendingTaskSave) this.finishTaskSave(true);
+      }
       if(cmd === 'respLogs' || cmd === 'logs') {
         const parsedLogs = parsePayloadKontrol(muatan);
         if (this.pendingLogDownloads && Object.keys(this.pendingLogDownloads).length > 0) {
@@ -3280,13 +3285,32 @@ function app() {
         });
       } else {
         this.publishCommand(perintah);
-        // Minta penyegaran data task
-        setTimeout(() => this.publishCommand('getTasks'), 500);
+        // Tunggu balasan perangkat sebelum bilang "tersimpan": kalau kontroler
+        // tidak merespons (mis. sedang offline), perubahan TIDAK diterapkan dan
+        // pengguna harus tahu, bukan dapat notifikasi palsu.
+        this.startTaskSaveWatch(perintah.task?.label || '');
         this.showTaskModal = false;
         this.showAllTasksModal = false;
-        this.showToast('Task dikirim ke kontroler.');
         this.endAction();
       }
+    },
+    // ── Umpan balik penyimpanan task (mode online) ───────────────────────
+    // Perangkat membalas respTask (sukses) atau respError (gagal). Bila tidak ada
+    // balasan dalam batas waktu, beri tahu bahwa perubahan BELUM tentu tersimpan.
+    startTaskSaveWatch(label) {
+      this.finishTaskSave();
+      this.pendingTaskSave = { label, timer: setTimeout(() => {
+        if (!this.pendingTaskSave) return;
+        this.pendingTaskSave = null;
+        this.showToast('Kontroler tidak merespons — perubahan task belum tentu tersimpan.', 'warn');
+      }, 6000) };
+    },
+    finishTaskSave(sukses = null, pesan = '') {
+      const pending = this.pendingTaskSave;
+      if (pending?.timer) clearTimeout(pending.timer);
+      this.pendingTaskSave = null;
+      if (sukses === true) this.showToast('Task tersimpan di kontroler.');
+      else if (sukses === false) this.showToast(pesan || 'Kontroler menolak perubahan task.', 'error');
     },
     openScheduleList(taskIndex) { this.scheduleListTaskIndex = taskIndex; this.showScheduleListModal = true; },
     getTaskByIndex(idx) { 
@@ -4499,6 +4523,8 @@ function app() {
     vpsState: null,        // {age_s, last_seen, online, diambil}
     vpsStateBusy: false,
     vpsStateTimer: null,
+    // Menunggu balasan perangkat setelah menyimpan task (mode online).
+    pendingTaskSave: null,
 
     get cloudBase() {
       return `${this.config?.cloudBaseUrl || ''}`.trim().replace(/\/+$/, '');
