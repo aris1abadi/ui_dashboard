@@ -356,6 +356,12 @@
           <span class="status-inline-icon" x-text="powerStatus.icon"></span>
           <span class="status-inline-text" x-text="powerStatus.text"></span>
         </div>
+        <!-- Snapshot terakhir dari VPS (tampil hanya saat kontroler tak terjangkau) -->
+        <div class="status-inline mt-1" x-show="vpsStateActive" :class="vpsStateBadge.variant"
+          :title="vpsStateBadge.title">
+          <span class="status-inline-icon" x-text="vpsStateBadge.icon"></span>
+          <span class="status-inline-text" x-text="vpsStateBadge.text"></span>
+        </div>
       </div>
       <div class="status-stack">
         <button @click="openLogModal()" class="btn icon-btn" title="Log Aktivitas"
@@ -1723,7 +1729,7 @@
   <script src="mqtt.min.js"></script>
   <script src="chart.umd.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260923d"></script>
+  <script src="app.js?v=20260923f"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;

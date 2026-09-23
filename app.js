@@ -1062,6 +1062,9 @@ function app() {
       this.ensureUiId(); 
       this.initAuthState(); 
       this.setupPwaHooks();
+      // Snapshot state terakhir dari VPS: dipakai saat kontroler tidak terjangkau
+      // supaya task/sensor/aktuator tetap terlihat.
+      this.startVpsStateWatch();
       const savedTheme = localStorage.getItem('karjo_ui_theme') || 'dark'; 
       this.theme = savedTheme; 
       this.applyTheme(savedTheme); 
@@ -1199,6 +1202,9 @@ function app() {
       this.mode = 'offline';
       this.connected = false;
       this.showMqttCredentialModal = true;
+      // Layar login tampil karena perangkat belum terjangkau → tampilkan
+      // snapshot terakhir dari VPS agar data tidak kosong.
+      this.syncVpsState();
     },
     closeMqttCredentialModal({ keepPendingConnect = false } = {}) {
       this.showMqttCredentialModal = false;
@@ -1319,6 +1325,8 @@ function app() {
       if (authError) {
         this.mqttCredentialForm.error = 'Data akun online tidak valid.';
       }
+      // Tampilkan snapshot terakhir dari VPS selama belum bisa masuk.
+      this.syncVpsState();
     },
     submitMqttCredentialModal() {
       try {
@@ -2186,7 +2194,7 @@ function app() {
       return true; 
     },
     endAction() { if(this.actionTimer) clearTimeout(this.actionTimer); this.actionInFlight = false; this.loadingTaskIndex = null; },
-    applyKontrolId(nextId, { skipLogout = false } = {}) { const normalized = normalizeKontrolId(nextId); if (!normalized || normalized === this.config.mqtt.kontrolId) return; const previous = this.config.mqtt.kontrolId; this.config.mqtt.kontrolId = normalized; this.ensureKontrolIdList(normalized); this.clearDeviceState(); this.saveConfig(); if (this.mode === 'mqtt' && this.mqttClient?.connected) { if (previous) this.mqttClient.unsubscribe(`abadinet-out/${previous}/#`); this.mqttClient.subscribe(`abadinet-out/${normalized}/#`); this.publishCommand('getAll'); } if (!skipLogout) this.logoutApplication(true); },
+    applyKontrolId(nextId, { skipLogout = false } = {}) { const normalized = normalizeKontrolId(nextId); if (!normalized || normalized === this.config.mqtt.kontrolId) return; const previous = this.config.mqtt.kontrolId; this.config.mqtt.kontrolId = normalized; this.ensureKontrolIdList(normalized); this.clearDeviceState(); this.vpsState = null; this.syncVpsState(); this.saveConfig(); if (this.mode === 'mqtt' && this.mqttClient?.connected) { if (previous) this.mqttClient.unsubscribe(`abadinet-out/${previous}/#`); this.mqttClient.subscribe(`abadinet-out/${normalized}/#`); this.publishCommand('getAll'); } if (!skipLogout) this.logoutApplication(true); },
     ensureKontrolIdList(id) { const normalized = normalizeKontrolId(id); if(normalized && !this.config.kontrolIds.includes(normalized)) { this.config.kontrolIds.push(normalized); } },
     
     // Fungsi tampilan task & jadwal
@@ -4456,6 +4464,13 @@ function app() {
     sensorhubSeries: [],
     sensorhubLatest: {},
     sensorhubLatestAt: {},
+    // ── DUPLIKAT STATUS DI VPS (SensorHub) ────────────────────────────────
+    // Kontroler mengirim state terakhirnya (status/task/sensor/aktuator) ke
+    // SensorHub; saat kontroler TIDAK terjangkau dashboard memakai snapshot itu
+    // supaya task/sensor/aktuator tetap terlihat (dengan penanda "data VPS").
+    vpsState: null,        // {age_s, last_seen, online, diambil}
+    vpsStateBusy: false,
+    vpsStateTimer: null,
 
     get cloudBase() {
       return `${this.config?.cloudBaseUrl || ''}`.trim().replace(/\/+$/, '');
@@ -4510,6 +4525,118 @@ function app() {
     },
     get cloudKontrolId() {
       return this.mqttKontrolId || this.login.kontrolId || this.config.mqtt.kontrolId;
+    },
+
+    // ── Snapshot state dari VPS (dipakai saat kontroler offline) ──────────
+    get isLiveConnected() {
+      return (this.mode === 'mqtt' && this.connected) || (this.mode === 'local' && this.connected);
+    },
+    get vpsStateActive() {
+      return !!this.vpsState;
+    },
+    get vpsStateAgeText() {
+      const detik = Number(this.vpsState?.age_s);
+      if (!Number.isFinite(detik)) return '';
+      if (detik < 90) return 'baru saja';
+      const menit = Math.round(detik / 60);
+      if (menit < 60) return `${menit} menit lalu`;
+      const jam = Math.round(menit / 60);
+      if (jam < 48) return `${jam} jam lalu`;
+      return `${Math.round(jam / 24)} hari lalu`;
+    },
+    get vpsStateBadge() {
+      const umur = this.vpsStateAgeText;
+      return {
+        icon: '🗄️',
+        text: umur ? `Data VPS ${umur}` : 'Data VPS',
+        variant: 'badge-warn',
+        title: `Kontroler tidak terjangkau — yang ditampilkan adalah data terakhir yang tersimpan di VPS${umur ? ` (${umur})` : ''}.`,
+      };
+    },
+    // Ambil snapshot dari SensorHub. Hanya saat TIDAK live (kalau live, snapshot
+    // dibuang supaya data langsung dari perangkat yang dipakai).
+    async syncVpsState() {
+      if (this.isLiveConnected) {
+        if (this.vpsState) this.vpsState = null;
+        return;
+      }
+      if (!this.cloudEnabled || !this.cloudKontrolId || this.vpsStateBusy) return;
+      // KA-0000 = ID bawaan (perangkat belum dipilih) → tidak ada snapshot,
+      // jangan buat permintaan yang pasti 404.
+      if (normalizeKontrolId(this.cloudKontrolId) === 'KA-0000') return;
+      this.vpsStateBusy = true;
+      try {
+        const token = `${this.cloudToken || ''}`.trim();
+        const sn = encodeURIComponent(this.cloudKontrolId);
+        const resp = await fetch(
+          `${this.cloudBase}/api/state/${sn}${token ? `?token=${encodeURIComponent(token)}` : ''}`,
+          { cache: 'no-store' },
+        );
+        if (!resp.ok) {
+          // 404 = belum ada snapshot (kontroler belum pernah mengirim) → biarkan kosong.
+          if (resp.status === 404) this.vpsState = null;
+          return;
+        }
+        const data = await resp.json();
+        if (data?.ok) this.applyVpsSnapshot(data);
+      } catch {
+        /* jaringan/CORS bermasalah → snapshot lama tetap dipakai */
+      } finally {
+        this.vpsStateBusy = false;
+      }
+    },
+    // Terapkan snapshot lewat parser yang SAMA dengan jalur MQTT, jadi bentuk
+    // payload kontroler (respStatus/respTask/respSensor/respActuator) langsung
+    // bisa dipakai tanpa kode khusus.
+    applyVpsSnapshot(data) {
+      const kosongSebelumnya = !this.sensors.length && !this.tasks.length;
+      let diisi = false;
+      try {
+        if (data.status) {
+          this.applyNetworkScope(parseStatusJson(JSON.stringify(data.status)));
+          diisi = true;
+        }
+        if (data.actuators) {
+          this.actuators = parseActuatorsJson(JSON.stringify(data.actuators));
+          diisi = true;
+        }
+        if (data.tasks) {
+          this.mergeTasks(parseTasksJson(JSON.stringify(data.tasks)));
+          diisi = true;
+        }
+        if (data.sensors) {
+          this.sensors = this.mergeSensors(parseSensorsJson(JSON.stringify(data.sensors)));
+          diisi = true;
+        }
+      } catch {
+        return; // payload rusak/tidak dikenal — jangan tampilkan setengah data
+      }
+      if (!diisi) return;
+
+      this.lastUpdate = new Date();
+      this.vpsState = {
+        age_s: data.age_s,
+        last_seen: data.last_seen,
+        online: !!data.online,
+        diambil: Date.now(),
+      };
+      // Beri tahu sekali (saat benar-benar kosong sebelumnya) supaya pengguna tahu
+      // data ini snapshot, bukan live.
+      if (kosongSebelumnya && !this._vpsSnapshotNotified) {
+        this._vpsSnapshotNotified = true;
+        this.showToast(`Kontroler belum terjangkau — menampilkan data terakhir dari VPS (${this.vpsStateAgeText || 'tersimpan'}).`, 'info');
+      }
+    },
+    startVpsStateWatch() {
+      this.stopVpsStateWatch();
+      this.syncVpsState();
+      this.vpsStateTimer = setInterval(() => { this.syncVpsState(); }, 60000);
+    },
+    stopVpsStateWatch() {
+      if (this.vpsStateTimer) {
+        clearInterval(this.vpsStateTimer);
+        this.vpsStateTimer = null;
+      }
     },
 
     async openCloudHistory() {
