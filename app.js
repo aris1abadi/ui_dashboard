@@ -3426,6 +3426,15 @@ function app() {
       const adaBalasan = pending.adaBalasan;
       this.pendingTaskSave = null;
       if (mismatch) {
+        // Perangkat sedang TIDAK mengirim data apa pun: perintah sudah diantre
+        // broker (QoS 1 + sesi persisten) dan akan diterapkan begitu perangkat
+        // kembali. Balasan yang terlihat cuma salinan lama — jangan dituduhkan
+        // sebagai "belum menerapkan".
+        if (!this.isControllerResponsive) {
+          this.lastLiveUpdate = null;
+          this.showToast('Kontroler belum tersambung — perubahan sudah diantre dan akan diterapkan saat perangkat kembali.', 'warn');
+          return;
+        }
         this.showToast(`Kontroler belum menerapkan: ${mismatch}.`, 'error');
         return;
       }
