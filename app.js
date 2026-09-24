@@ -332,7 +332,11 @@ const sensorhubChartPalette = ['#FF1A75', '#ff8a65', '#81c784', '#ba68c8', '#fff
 function app() {
   return {
     // State utama
-    isAuthenticated: false, config: JSON.parse(JSON.stringify(defaults)), connectionPreference: normalizeConnectionPreference(localStorage.getItem('karjo_ui_connection_mode')), mode: 'offline', connected: false, network: {}, manualDurationMs: 0, manualDurationMinutes: 0, manualDurationBusy: false, sensors: [], actuators: [], tasks: [], currentTaskIndex: 0, lastUpdate: null, mqttClient: null, refreshTimer: null, uiTimer: null, now: Date.now(), actionInFlight: false, actionTimer: null, pendingKontrolId: null, pendingTaskSave: null, theme: 'dark',
+    isAuthenticated: false, config: JSON.parse(JSON.stringify(defaults)), connectionPreference: normalizeConnectionPreference(localStorage.getItem('karjo_ui_connection_mode')), mode: 'offline', connected: false, network: {}, manualDurationMs: 0, manualDurationMinutes: 0, manualDurationBusy: false, sensors: [], actuators: [], tasks: [], currentTaskIndex: 0, lastUpdate: null, mqttClient: null, refreshTimer: null, uiTimer: null, now: Date.now(), actionInFlight: false, actionTimer: null, pendingKontrolId: null, pendingTaskSave: null, 
+    // Overlay perintah kontrol (blokir layar + spinner + timeout). Lihat
+    // kirimPerintahKontrol(). Wajib dideklarasikan agar reaktif & aman di x-show.
+    perintahOverlay: { aktif: false, pesan: '', hasil: '', variant: 'info' },
+    theme: 'dark',
     localDetectTimer: null, localLastSuccessMs: 0, connectionAttemptId: 0,
     localPollingPaused: false, localFallbackNotified: false,
     backgroundImage: localStorage.getItem('karjo_ui_bg') || '',
@@ -542,6 +546,9 @@ function app() {
       this._pernahLive = true;
       // Outage berikutnya boleh diberi tahu sekali lagi.
       this._vpsSnapshotNotified = false;
+      // Ada trafik NYATA dari kontroler (bukan salinan retained) → tutup spinner
+      // overlay perintah yang sedang menunggu jawaban.
+      if (typeof this._penungguBalasan === 'function') this._penungguBalasan(true);
     },
     // ── Gerbang perintah kontrol ──────────────────────────────────────────
     // Sesi MQTT perangkat sekarang CLEAN: broker TIDAK mengantre perintah saat
@@ -558,6 +565,74 @@ function app() {
     tolakKontrolTanpaKontroler() {
       this.showToast('Kontroler belum terhubung/merespons — perintah tidak dikirim.', 'error');
       return false;
+    },
+    // ── Overlay perintah kontrol: blokir layar + spinner + timeout ───────────
+    // Tujuan: pengguna LANGSUNG tahu apakah kontroler menjalankan perintah atau
+    // tidak — bukan menebak dari notifikasi yang bisa salah.
+    bukaOverlayPerintah(pesan) {
+      clearTimeout(this._overlayTutupTimer);
+      this.perintahOverlay = { aktif: true, pesan, hasil: '', variant: 'info' };
+    },
+    tutupOverlayPerintah(hasil, variant) {
+      // Hasil ditahan sebentar supaya terbaca, lalu overlay dilepas.
+      this.perintahOverlay = { aktif: true, pesan: this.perintahOverlay.pesan, hasil, variant };
+      clearTimeout(this._overlayTutupTimer);
+      this._overlayTutupTimer = setTimeout(() => {
+        this.perintahOverlay = { aktif: false, pesan: '', hasil: '', variant: 'info' };
+      }, 1600);
+    },
+    // Jalankan `kirim()` lalu tunggu balasan nyata dari kontroler (dipanggil dari
+    // tandaiKontrolerHidup()). true = dijawab, false = timeout.
+    tungguBalasan(kirim, timeoutMs = 8000) {
+      return new Promise((resolve) => {
+        let selesai = false;
+        const timer = setTimeout(() => akhiri(false), timeoutMs);
+        const akhiri = (ok) => {
+          if (selesai) return;
+          selesai = true;
+          this._penungguBalasan = null;
+          clearTimeout(timer);
+          resolve(ok);
+        };
+        this._penungguBalasan = akhiri;
+        try { kirim(); } catch (e) { akhiri(false); }
+      });
+    },
+    // Gerbang + umpan balik untuk SEMUA perintah kontrol dari dashboard.
+    async kirimPerintahKontrol(perintah, opsi = {}) {
+      const label = opsi.label || 'perintah';
+      const timeoutMs = opsi.timeoutMs || 8000;
+      if (this.mode === 'local') {
+        // Portal lokal: HTTP mengembalikan hasil langsung.
+        const res = await this.sendLocalCommand(perintah);
+        return !!res && res.ok !== false;
+      }
+      if (!this.bolehKirimPerintah) {
+        // Belum ada bukti kontroler hidup → tanya status dulu (dengan spinner).
+        this.bukaOverlayPerintah('Menghubungi kontroler…');
+        const hidup = await this.tungguBalasan(() => this.publishCommand({ cmd: 'getStatus' }), 6000);
+        if (!hidup) {
+          this.tutupOverlayPerintah(`Kontroler tidak merespons — ${label} tidak dikirim. Pastikan kontroler online.`, 'error');
+          return false;
+        }
+      }
+      this.bukaOverlayPerintah(`Mengirim: ${label}…`);
+      const dijawab = await this.tungguBalasan(() => this.publishCommand(perintah), timeoutMs);
+      const balasan = this._balasanTerakhir || {};
+      // respError = kontroler MENJAWAB tetapi MENOLAK (mis. "login required"):
+      // jangan bilang "perintah diterima" — pengguna harus tahu perintahnya tidak jalan.
+      const ditolak = dijawab && balasan.cmd === 'respError';
+      const pesanTolak = (() => {
+        try { return parsePayloadKontrol(balasan.muatan || '{}').error || 'perintah tidak dijalankan'; }
+        catch (e) { return 'perintah tidak dijalankan'; }
+      })();
+      this.tutupOverlayPerintah(
+        dijawab
+          ? (ditolak ? `${label} — kontroler MENOLAK: ${pesanTolak}`
+                     : `${label} — kontroler menjawab: perintah diterima.`)
+          : `${label} — kontroler TIDAK menjawab (timeout ${Math.round(timeoutMs / 1000)} s).`,
+        dijawab ? (ditolak ? 'error' : 'ok') : 'error');
+      return dijawab && !ditolak;
     },
     get statusBadge() { 
       const id = this.config?.mqtt?.kontrolId || '...';
@@ -1764,7 +1839,12 @@ function app() {
       });
     },
     handleMqttMessage(topic, muatan, retained = false) { 
-      const cmd = topic.substring(topic.lastIndexOf('/')+1); 
+      const cmd = topic.substring(topic.lastIndexOf('/')+1);
+      // Simpan balasan terakhir (hanya yang LIVE, bukan salinan retained) supaya
+      // overlay perintah bisa membedakan "diterima" vs "ditolak" (mis. login required).
+      if (!retained && cmd.startsWith('resp')) {
+        this._balasanTerakhir = { cmd, muatan, waktu: Date.now() };
+      } 
       if(cmd === 'respStatus') this.applyNetworkScope(parseStatusJson(muatan)); 
       if(cmd === 'respLogin') {
         const parsedLogin = parsePayloadKontrol(muatan);
@@ -2055,8 +2135,34 @@ function app() {
       return { ok, data: result, text: JSON.stringify(result) };
     },
     // durationMs=0 → perangkat memakai durasi manual tersimpan (NVS).
-    async sendActuator(index, action, tombol) { if (!this.beginAction(tombol)) return; if (this.mode === 'local') { const res = await this.sendLocalCommand({ cmd: 'setActuator', index, action, durationMs: 0 }); if (res.ok) await this.refreshLocal(); else this.showToast('Gagal mengirim perintah.', 'error'); this.endAction(); } else { this.publishCommand({ cmd: 'setActuator', index, action, durationMs: 0 }); } },
-    async runTask(index, tombol) { if (!this.beginAction(tombol)) return; this.loadingTaskIndex = index; if (this.mode === 'local') { const res = await this.sendLocalCommand({ cmd: 'runTask', index }); if(res.ok) await this.refreshLocal(); this.endAction(); } else { this.publishCommand({ cmd: 'runTask', index }); } },
+    async sendActuator(index, action, tombol) {
+      if (!this.beginAction(tombol)) return;
+      if (this.mode === 'local') {
+        const res = await this.sendLocalCommand({ cmd: 'setActuator', index, action, durationMs: 0 });
+        if (res.ok) await this.refreshLocal();
+        else this.showToast('Gagal mengirim perintah.', 'error');
+        this.endAction();
+        return;
+      }
+      const act = (this.actuators || []).find(a => Number(a.index) === Number(index)) || {};
+      const nama = act.label || `Aktuator ${index}`;
+      await this.kirimPerintahKontrol({ cmd: 'setActuator', index, action, durationMs: 0 },
+                                      { label: `${action === 'on' ? 'menyalakan' : 'mematikan'} ${nama}` });
+      this.endAction();
+    },
+    async runTask(index, tombol) {
+      if (!this.beginAction(tombol)) return;
+      this.loadingTaskIndex = index;
+      if (this.mode === 'local') {
+        const res = await this.sendLocalCommand({ cmd: 'runTask', index });
+        if (res.ok) await this.refreshLocal();
+        this.endAction();
+        return;
+      }
+      await this.kirimPerintahKontrol({ cmd: 'runTask', index }, { label: 'menjalankan task' });
+      this.loadingTaskIndex = null;
+      this.endAction();
+    },
     deleteTask(index) { 
       if (!this.allowTaskDelete) {
         this.showToast(this.getTaskDeleteLockedMessage(), 'error');
@@ -3306,7 +3412,7 @@ function app() {
       this.showTaskModal = true; 
     },
 
-    submitTask() {
+    async submitTask() {
       const index = Number(this.editingTask?.index ?? -1);
       if (!this.editingTask || !this.editingTask.sensorKey) {
         this.showToast('Data task tidak lengkap.', 'error');
@@ -3357,17 +3463,20 @@ function app() {
           this.endAction();
         });
       } else {
-        // publishCommand menolak (return false) bila kontroler belum merespons:
-        // jangan mulai jendela tunggu "tersimpan" dan jangan tutup modal supaya
-        // perubahan pengguna tidak hilang tanpa jejak.
-        if (this.publishCommand(perintah) === false) {
-          this.endAction();
-          return;
+        // Overlay + spinner: kirim dan tunggu jawaban kontroler — pengguna
+        // langsung melihat apakah perintah diterima atau timeout.
+        this.bukaOverlayPerintah('Menyimpan task… menunggu jawaban kontroler');
+        const dijawab = await this.tungguBalasan(() => this.publishCommand(perintah), 8000);
+        this.tutupOverlayPerintah(
+          dijawab ? 'Perintah diterima — memverifikasi nilai yang tersimpan…'
+                  : 'Kontroler tidak menjawab — perubahan BELUM diterapkan.',
+          dijawab ? 'ok' : 'error');
+        if (dijawab) {
+          // Tunggu balasan perangkat sebelum bilang "tersimpan": kalau kontroler
+          // tidak merespons (mis. sedang offline), perubahan TIDAK diterapkan dan
+          // pengguna harus tahu, bukan dapat notifikasi palsu.
+          this.startTaskSaveWatch(perintah);
         }
-        // Tunggu balasan perangkat sebelum bilang "tersimpan": kalau kontroler
-        // tidak merespons (mis. sedang offline), perubahan TIDAK diterapkan dan
-        // pengguna harus tahu, bukan dapat notifikasi palsu.
-        this.startTaskSaveWatch(perintah);
         this.showTaskModal = false;
         this.showAllTasksModal = false;
         this.endAction();

@@ -1617,7 +1617,7 @@
   <script src="mqtt.min.js"></script>
   <script src="chart.umd.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260924e"></script>
+  <script src="app.js?v=20260924g"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
@@ -1660,6 +1660,22 @@
       });
     }
   </script>
+
+  <!-- Overlay perintah kontrol: blokir layar + spinner + hasil langsung terlihat -->
+  <style>
+    @keyframes cmdspin { to { transform: rotate(360deg); } }
+  </style>
+  <div x-show="perintahOverlay.aktif" x-transition.opacity
+       aria-live="polite" role="status"
+       style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px);">
+    <div style="background:var(--card,#1c1c1e);color:var(--text,#eee);border-radius:14px;padding:22px 26px;min-width:280px;max-width:82vw;text-align:center;box-shadow:0 12px 34px rgba(0,0,0,.45);">
+      <div style="width:34px;height:34px;margin:0 auto 14px;border:3px solid rgba(255,255,255,.22);border-top-color:#4ade80;border-radius:50%;animation:cmdspin .8s linear infinite;"></div>
+      <div style="font-weight:600;margin-bottom:6px;" x-text="perintahOverlay.pesan"></div>
+      <div style="font-size:13px;line-height:1.4;min-height:18px;"
+           :style="perintahOverlay.variant === 'error' ? 'color:#f87171' : (perintahOverlay.variant === 'ok' ? 'color:#4ade80' : 'opacity:.85')"
+           x-text="perintahOverlay.hasil"></div>
+    </div>
+  </div>
 </body>
 
 </html>

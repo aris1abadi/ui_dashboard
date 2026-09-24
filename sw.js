@@ -1,4 +1,4 @@
-const CACHE_NAME = 'karjoagro-ui-v55';
+const CACHE_NAME = 'karjoagro-ui-v57';
 // HANYA file yang benar-benar ada di hasil build (dist/) maupun di root repo.
 // File yang tidak ada membuat cache.addAll() gagal → service worker tidak pernah
 // terpasang. Aset ber-hash (CSS/icon/manifest) masuk cache saat runtime.
