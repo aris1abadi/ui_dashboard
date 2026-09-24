@@ -2418,6 +2418,21 @@ function app() {
       if (!sn || /\(\s*SN-[^()]*\)\s*$/i.test(nama)) return nama;
       return `${nama} (${sn})`;
     },
+    // Label untuk modal KALIBRASI. State kalibrasi menyimpan label mentah dari
+    // perangkat (mis. "Ketinggian Air (HC-SR04)") tanpa SN, jadi SN diambil dari
+    // daftar sensor berdasarkan nodeId/childId. Hasilnya konsisten dengan daftar
+    // sensor: "Ketinggian Air (SN-2E7C)".
+    labelSensorKalibrasi(info, bawaan) {
+      if (!info) return bawaan || this.getUiLabel('sensor');
+      let sumber = info;
+      if (!`${info.sn || ''}`.trim()) {
+        const cocok = (this.sensors || []).find(s =>
+          Number(s.nodeId) === Number(info.nodeId) && Number(s.childId) === Number(info.childId));
+        if (cocok) sumber = cocok;
+      }
+      const hasil = this.labelSensor(sumber);
+      return hasil || bawaan || this.getUiLabel('sensor');
+    },
     // Fungsi tampilan task & jadwal
     getSensorLabel(task) { 
       if (!task) return '-';

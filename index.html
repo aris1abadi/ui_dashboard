@@ -114,7 +114,7 @@
       </div>
       <div class="modal-body p-6 space-y-6">
         <div class="flex flex-col gap-2">
-          <div class="text-lg font-bold text-white" x-text="distanceCalibration.label || 'Ketinggian Air'"></div>
+          <div class="text-lg font-bold text-white" x-text="labelSensorKalibrasi(distanceCalibration, 'Ketinggian Air')"></div>
           <div class="text-sm text-gray-400"
             x-text="`${getUiLabel('nodeSensor')} ${distanceCalibration.nodeId}:${distanceCalibration.childId}`"></div>
           <p class="text-xs text-gray-500">Setel <b>titik 0</b> saat permukaan air tepat di permukaan tanah:
@@ -194,7 +194,7 @@
       </div>
       <div class="modal-body p-6 space-y-6">
         <div class="flex flex-col gap-2">
-          <div class="text-lg font-bold text-white" x-text="fuelCalibration.label || 'Tinggi Cairan'"></div>
+          <div class="text-lg font-bold text-white" x-text="labelSensorKalibrasi(fuelCalibration, 'Tinggi Cairan')"></div>
           <div class="text-sm text-gray-400"
             x-text="`${getUiLabel('nodeSensor')} ${fuelCalibration.nodeId}:${fuelCalibration.childId}`"></div>
           <p class="text-xs text-gray-500">Setel <b>titik 0</b> saat permukaan cairan tepat di dasar tangki
@@ -321,7 +321,7 @@
             <template x-for="sensor in nodeInfo.sensors" :key="`ni-${sensor.nodeId}:${sensor.childId}`">
               <div class="item cursor-pointer hover:bg-white/5" @click="openNodeInfoSensor(sensor)">
                 <div class="flex-1">
-                  <div class="title" x-text="sensor.label || getUiLabel('sensor')"></div>
+                  <div class="title" x-text="labelSensor(sensor)"></div>
                   <div class="meta"
                     x-text="`${getUiLabel('node')} ${sensor.nodeId}:${sensor.childId} • ${formatNilaiSensor(sensor.value, getSensorUnit({ sensorNode: sensor.nodeId, sensorChild: sensor.childId }))}`"></div>
                   <div class="meta" x-show="sensorCalibrationText(sensor)" x-text="sensorCalibrationText(sensor)"></div>
@@ -1225,7 +1225,7 @@
       </div>
       <div class="modal-body p-6 space-y-6">
         <div class="flex flex-col gap-2">
-          <div class="text-lg font-bold text-white" x-text="moistureCalibration.label || 'Kelembapan Tanah'"></div>
+          <div class="text-lg font-bold text-white" x-text="labelSensorKalibrasi(moistureCalibration, 'Kelembapan Tanah')"></div>
           <div class="text-sm text-gray-400"
             x-text="`${getUiLabel('nodeSensor')} ${moistureCalibration.nodeId}:${moistureCalibration.childId}`"></div>
           <p class="text-xs text-gray-500">Tekan <b>Nilai Kering</b> saat sensor ditancap di tanah kering, dan
@@ -1617,7 +1617,7 @@
   <script src="mqtt.min.js"></script>
   <script src="chart.umd.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260924j"></script>
+  <script src="app.js?v=20260924k"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
