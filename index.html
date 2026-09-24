@@ -1638,6 +1638,20 @@
         alert('Gagal menghapus cache aplikasi.');
       }
     };
+    // Muat ulang SEKALI bila service worker BARU mengambil alih. Tanpa ini,
+    // halaman yang sudah lama terbuka tetap menjalankan app.js versi lama
+    // (gejala: perbaikan sudah di-deploy tetapi notifikasi "tidak berubah").
+    // Hanya berlaku untuk halaman yang sebelumnya SUDAH dikendalikan SW, supaya
+    // pemasangan pertama tidak memicu muat ulang berulang.
+    if ('serviceWorker' in navigator) {
+      const sudahDikendalikan = !!navigator.serviceWorker.controller;
+      let sudahMuatUlang = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (sudahMuatUlang || !sudahDikendalikan) return;
+        sudahMuatUlang = true;
+        location.reload();
+      });
+    }
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js').catch(() => {
