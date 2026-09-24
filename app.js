@@ -573,13 +573,36 @@ function app() {
       clearTimeout(this._overlayTutupTimer);
       this.perintahOverlay = { aktif: true, pesan, hasil: '', variant: 'info' };
     },
-    tutupOverlayPerintah(hasil, variant) {
-      // Hasil ditahan sebentar supaya terbaca, lalu overlay dilepas.
-      this.perintahOverlay = { aktif: true, pesan: this.perintahOverlay.pesan, hasil, variant };
+    tutupOverlayPerintah(hasil = '', variant = 'info') {
       clearTimeout(this._overlayTutupTimer);
+      // Teks HANYA muncul saat ada masalah (timeout / ditolak). Kalau berhasil,
+      // indikator langsung hilang tanpa pesan apa pun.
+      if (!hasil) {
+        this.perintahOverlay = { aktif: false, pesan: '', hasil: '', variant: 'info' };
+        return;
+      }
+      this.perintahOverlay = { aktif: true, pesan: '', hasil, variant };
       this._overlayTutupTimer = setTimeout(() => {
         this.perintahOverlay = { aktif: false, pesan: '', hasil: '', variant: 'info' };
-      }, 1600);
+      }, 2600);
+    },
+    // Terjemahkan hasil tunggu menjadi tampilan overlay:
+    //   dijawab & bukan error → tutup tanpa teks (sukses)
+    //   timeout / respError   → tampilkan teks merah
+    selesaikanOverlay(dijawab, label, timeoutMs) {
+      const balasan = this._balasanTerakhir || {};
+      if (!dijawab) {
+        this.tutupOverlayPerintah(`Kontroler tidak menjawab (timeout ${Math.round(timeoutMs / 1000)} s) — ${label} belum diterapkan.`, 'error');
+        return false;
+      }
+      if (balasan.cmd === 'respError') {
+        let pesan = 'perintah ditolak';
+        try { pesan = parsePayloadKontrol(balasan.muatan || '{}').error || pesan; } catch (e) { /* pakai bawaan */ }
+        this.tutupOverlayPerintah(`Ditolak kontroler: ${pesan} — ${label} tidak diterapkan.`, 'error');
+        return false;
+      }
+      this.tutupOverlayPerintah(); // sukses: tanpa teks
+      return true;
     },
     // Jalankan `kirim()` lalu tunggu balasan nyata dari kontroler (dipanggil dari
     // tandaiKontrolerHidup()). true = dijawab, false = timeout.
@@ -608,31 +631,17 @@ function app() {
         return !!res && res.ok !== false;
       }
       if (!this.bolehKirimPerintah) {
-        // Belum ada bukti kontroler hidup → tanya status dulu (dengan spinner).
-        this.bukaOverlayPerintah('Menghubungi kontroler…');
+        // Belum ada bukti kontroler hidup → tanya status dulu (spinner).
+        this.bukaOverlayPerintah();
         const hidup = await this.tungguBalasan(() => this.publishCommand({ cmd: 'getStatus' }), 6000);
         if (!hidup) {
           this.tutupOverlayPerintah(`Kontroler tidak merespons — ${label} tidak dikirim. Pastikan kontroler online.`, 'error');
           return false;
         }
       }
-      this.bukaOverlayPerintah(`Mengirim: ${label}…`);
+      this.bukaOverlayPerintah();
       const dijawab = await this.tungguBalasan(() => this.publishCommand(perintah), timeoutMs);
-      const balasan = this._balasanTerakhir || {};
-      // respError = kontroler MENJAWAB tetapi MENOLAK (mis. "login required"):
-      // jangan bilang "perintah diterima" — pengguna harus tahu perintahnya tidak jalan.
-      const ditolak = dijawab && balasan.cmd === 'respError';
-      const pesanTolak = (() => {
-        try { return parsePayloadKontrol(balasan.muatan || '{}').error || 'perintah tidak dijalankan'; }
-        catch (e) { return 'perintah tidak dijalankan'; }
-      })();
-      this.tutupOverlayPerintah(
-        dijawab
-          ? (ditolak ? `${label} — kontroler MENOLAK: ${pesanTolak}`
-                     : `${label} — kontroler menjawab: perintah diterima.`)
-          : `${label} — kontroler TIDAK menjawab (timeout ${Math.round(timeoutMs / 1000)} s).`,
-        dijawab ? (ditolak ? 'error' : 'ok') : 'error');
-      return dijawab && !ditolak;
+      return this.selesaikanOverlay(dijawab, label, timeoutMs);
     },
     get statusBadge() { 
       const id = this.config?.mqtt?.kontrolId || '...';
@@ -3468,13 +3477,10 @@ function app() {
         // NAMA task, INDEKS, dan nilai aktuator yang dikirim supaya tidak ada
         // keraguan task mana yang diubah.
         const labelPerintah = `task "${this.getTaskLabel(this.editingTask)}" (idx ${index}) → aktuator ${muatanTask.actuatorIndex}`;
-        this.bukaOverlayPerintah(`Menyimpan ${labelPerintah}…`);
+        this.bukaOverlayPerintah();
         const dijawab = await this.tungguBalasan(() => this.publishCommand(perintah), 8000);
-        this.tutupOverlayPerintah(
-          dijawab ? `${labelPerintah} — kontroler menjawab: diterapkan.`
-                  : `${labelPerintah} — kontroler TIDAK menjawab (timeout 8 s).`,
-          dijawab ? 'ok' : 'error');
-        if (dijawab) {
+        const tersimpan = this.selesaikanOverlay(dijawab, labelPerintah, 8000);
+        if (tersimpan) {
           // Tunggu balasan perangkat sebelum bilang "tersimpan": kalau kontroler
           // tidak merespons (mis. sedang offline), perubahan TIDAK diterapkan dan
           // pengguna harus tahu, bukan dapat notifikasi palsu.
