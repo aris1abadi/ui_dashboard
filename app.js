@@ -2147,7 +2147,7 @@ function app() {
       const act = (this.actuators || []).find(a => Number(a.index) === Number(index)) || {};
       const nama = act.label || `Aktuator ${index}`;
       await this.kirimPerintahKontrol({ cmd: 'setActuator', index, action, durationMs: 0 },
-                                      { label: `${action === 'on' ? 'menyalakan' : 'mematikan'} ${nama}` });
+                                      { label: `${action === 'on' ? 'menyalakan' : 'mematikan'} aktuator idx ${index} (${nama})` });
       this.endAction();
     },
     async runTask(index, tombol) {
@@ -3464,12 +3464,15 @@ function app() {
         });
       } else {
         // Overlay + spinner: kirim dan tunggu jawaban kontroler — pengguna
-        // langsung melihat apakah perintah diterima atau timeout.
-        this.bukaOverlayPerintah('Menyimpan task… menunggu jawaban kontroler');
+        // langsung melihat apakah perintah diterima atau timeout. Label memuat
+        // NAMA task, INDEKS, dan nilai aktuator yang dikirim supaya tidak ada
+        // keraguan task mana yang diubah.
+        const labelPerintah = `task "${this.getTaskLabel(this.editingTask)}" (idx ${index}) → aktuator ${muatanTask.actuatorIndex}`;
+        this.bukaOverlayPerintah(`Menyimpan ${labelPerintah}…`);
         const dijawab = await this.tungguBalasan(() => this.publishCommand(perintah), 8000);
         this.tutupOverlayPerintah(
-          dijawab ? 'Perintah diterima — memverifikasi nilai yang tersimpan…'
-                  : 'Kontroler tidak menjawab — perubahan BELUM diterapkan.',
+          dijawab ? `${labelPerintah} — kontroler menjawab: diterapkan.`
+                  : `${labelPerintah} — kontroler TIDAK menjawab (timeout 8 s).`,
           dijawab ? 'ok' : 'error');
         if (dijawab) {
           // Tunggu balasan perangkat sebelum bilang "tersimpan": kalau kontroler
