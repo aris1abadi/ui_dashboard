@@ -733,7 +733,7 @@
                 @click="sensor.nodeId === 0 ? null : (isMoistureSensor(sensor) ? openMoistureCalibration(sensor) : (isFuelHeightSensor(sensor) ? openFuelCalibration(sensor) : (isDistanceSensor(sensor) ? openDistanceCalibration(sensor) : openSensorInterval(sensor))))">
                 <div class="flex-1">
                   <div class="title flex items-baseline gap-2 flex-wrap">
-                    <span x-text="sensor.label || getUiLabel('sensor')"></span>
+                    <span x-text="labelSensor(sensor)"></span>
                     <span class="text-white font-bold"
                       x-text="formatNilaiSensor(sensor.value, getSensorUnit({ sensorNode: sensor.nodeId, sensorChild: sensor.childId }))"></span>
                   </div>
@@ -1147,7 +1147,7 @@
             <label x-text="getUiLabel('sensor')"></label>
             <select x-model="editingTask.sensorKey" @change="onTaskSensorChange()">
               <template x-for="s in sensors">
-                <option :value="`${s.nodeId}:${s.childId}`" x-text="s.label"></option>
+                <option :value="`${s.nodeId}:${s.childId}`" x-text="labelSensor(s)"></option>
               </template>
             </select>
           </div>
@@ -1315,7 +1315,7 @@
                   <select x-model="editingTask.sensorKey" @change="onTaskSensorChange()"
                     class="w-full bg-[#202026] border border-[#2a2a30] p-3 rounded-xl text-white">
                     <template x-for="s in sensors">
-                      <option :value="`${s.nodeId}:${s.childId}`" x-text="s.label"></option>
+                      <option :value="`${s.nodeId}:${s.childId}`" x-text="labelSensor(s)"></option>
                     </template>
                   </select>
                 </div>
@@ -1532,7 +1532,7 @@
           <select x-model="sensorhubChartField"
             @change="selectSensorhubChart($event.target.value)">
             <template x-for="f in sensorhubFieldList" :key="f.key">
-              <option :value="f.name" x-text="f.name"></option>
+              <option :value="f.name" x-text="sensorhubFieldLabel(f.name)"></option>
             </template>
           </select>
         </div>
@@ -1560,7 +1560,7 @@
               <h6 class="text-sm font-semibold mb-2 flex items-center gap-2">
                 <span class="inline-block h-2.5 w-2.5 rounded-full shrink-0"
                   :style="`background:${sensorhubColor(i)}`"></span>
-                <span class="truncate" x-text="nama" :title="nama"></span>
+                <span class="truncate" x-text="sensorhubFieldLabel(nama)" :title="sensorhubFieldLabel(nama)"></span>
                 <small class="text-gray-500" x-show="sensorhubSensorUnit(nama)"
                   x-text="'(' + sensorhubSensorUnit(nama) + ')'"></small>
                 <span class="ml-auto shrink-0 font-bold" x-text="sensorhubSensorValue(nama)"></span>
@@ -1617,7 +1617,7 @@
   <script src="mqtt.min.js"></script>
   <script src="chart.umd.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260923n"></script>
+  <script src="app.js?v=20260924a"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;

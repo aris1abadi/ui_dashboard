@@ -150,6 +150,9 @@ function parseSensorsJson(muatan) {
     nodeId: toNumber(item.nodeId ?? item.node ?? item.n),
     childId: toNumber(item.childId ?? item.child ?? item.c),
     label: item.label || '',
+    // Serial number node pengirim ("SN-XXXX") — dipakai untuk membedakan
+    // sensor yang namanya sama persis di beberapa node.
+    sn: `${item.sn || ''}`.trim(),
     sensorType: toNumber(item.sensorType ?? 0),
     valueType: toNumber(item.valueType ?? 0),
     value: item.value === '' || item.value === undefined ? null : toNumber(item.value, null),
@@ -2252,11 +2255,26 @@ function app() {
     applyKontrolId(nextId, { skipLogout = false } = {}) { const normalized = normalizeKontrolId(nextId); if (!normalized || normalized === this.config.mqtt.kontrolId) return; const previous = this.config.mqtt.kontrolId; this.config.mqtt.kontrolId = normalized; this.ensureKontrolIdList(normalized); this.clearDeviceState(); this.vpsState = null; this.syncVpsState(); this.saveConfig(); if (this.mode === 'mqtt' && this.mqttClient?.connected) { if (previous) this.mqttClient.unsubscribe(`abadinet-out/${previous}/#`); this.mqttClient.subscribe(`abadinet-out/${normalized}/#`); this.publishCommand('getAll'); } if (!skipLogout) this.logoutApplication(true); },
     ensureKontrolIdList(id) { const normalized = normalizeKontrolId(id); if(normalized && !this.config.kontrolIds.includes(normalized)) { this.config.kontrolIds.push(normalized); } },
     
+    // Label sensor untuk PENGGUNA: nama sensor + SN node pengirim, tanpa istilah
+    // teknis tipe sensor ("(HC-SR04)", "(DHT22)", "(sensor analog)", …).
+    // Perlu karena beberapa node mengirim nama yang sama persis sehingga di
+    // daftar pilihan sensor tidak bisa dibedakan satu dengan yang lain.
+    labelSensor(sensor) {
+      if (!sensor) return this.getUiLabel('sensor');
+      const mentah = `${sensor.label || ''}`.trim() || this.getUiLabel('sensor');
+      const sn = `${sensor.sn || ''}`.trim();
+      // Buang "(…)" paling akhir HANYA bila isinya bukan SN pengirim.
+      const nama = mentah
+        .replace(/\s*\(([^()]*)\)\s*$/, (cocok, isi) => (/^SN-/i.test(`${isi}`.trim()) ? cocok : ''))
+        .trim() || mentah;
+      if (!sn || /\(\s*SN-[^()]*\)\s*$/i.test(nama)) return nama;
+      return `${nama} (${sn})`;
+    },
     // Fungsi tampilan task & jadwal
     getSensorLabel(task) { 
       if (!task) return '-';
       const sensor = this.sensors.find(s => s.nodeId === task.sensorNode && s.childId === task.sensorChild); 
-      return sensor?.label || `Sensor ${task.sensorNode}:${task.sensorChild}`; 
+      return sensor ? this.labelSensor(sensor) : `Sensor ${task.sensorNode}:${task.sensorChild}`; 
     },
     getActuatorLabel(task) { 
       if (!task) return '-';
@@ -4636,6 +4654,40 @@ function app() {
     get sensorhubFieldList() {
       return this.sensorhubNode?.fields || [];
     },
+    // Pisahkan nama kolom SensorHub menjadi { nama, sn }.
+    // Contoh kolom: "SN-2E7C • Ketinggian Air (HC-SR04)" → sn="SN-2E7C",
+    // nama="Ketinggian Air" (keterangan teknis tipe sensor dibuang).
+    // Kolom channel node tidak berawalan SN (mis. "Ketinggian Air") → sn="".
+    sensorhubFieldParts(name) {
+      const mentah = `${name || ''}`.trim();
+      const pisah = mentah.split('•');
+      const sn = pisah.length > 1 ? pisah[0].trim() : '';
+      let nama = (pisah.length > 1 ? pisah.slice(1).join('•') : mentah).trim();
+      // Buang "(…)" paling akhir HANYA bila isinya bukan SN (HC-SR04, DHT22,
+      // VL53L0X, "sensor analog", …).
+      nama = nama.replace(/\s*\(([^()]*)\)\s*$/, (cocok, isi) => (/^SN-/i.test(isi.trim()) ? cocok : ''));
+      return { nama: nama.trim() || mentah, sn };
+    },
+    // Berapa kolom pada channel aktif memakai nama dasar yang sama.
+    sensorhubFieldBaseCount(namaDasar) {
+      return (this.sensorhubFieldList || [])
+        .filter((f) => this.sensorhubFieldParts(f.name).nama === namaDasar).length;
+    },
+    // Label sensor untuk PENGGUNA: tanpa istilah teknis; SN pengirim dipakai
+    // untuk membedakan sensor yang namanya sama (mis. beberapa node mengirim
+    // "Ketinggian Air" yang sama persis → "Ketinggian Air (SN-2E7C)").
+    // Nama MENTAH dari SensorHub tetap dipakai sebagai kunci kolom data.
+    sensorhubFieldLabel(name) {
+      const { nama: dasar, sn } = this.sensorhubFieldParts(name);
+      // Nama dasar bisa masih membawa SN di ujung ("Ketinggian Air (SN-6314)");
+      // SN itu dipakai apa adanya supaya tidak muncul dua kali.
+      const snDalam = (dasar.match(/\(SN-[^()]*\)\s*$/i) || [''])[0].trim();
+      const nama = `${dasar}`.replace(/\s*\(SN-[^()]*\)\s*$/i, '').trim() || dasar;
+      const snChannel = `${this.sensorhubSn || ''}`.trim();
+      const snTampil = sn || snDalam || (/^(sn-|ka-)/i.test(snChannel) ? snChannel : '');
+      const perluSn = !!snTampil && (!!sn || !!snDalam || this.sensorhubFieldBaseCount(nama) > 1);
+      return perluSn ? `${nama} (${snTampil})` : nama;
+    },
     // Pemilik sensor = kontrol id kontroler pengirim (mis. KA-24C2). Dicatat
     // otomatis oleh SensorHub saat data pertama masuk — tanpa proses claim.
     get sensorhubOwner() {
@@ -4916,9 +4968,10 @@ function app() {
     },
     // Unduh data SATU sensor dalam CSV (sesuai rentang waktu yang aktif).
     downloadSensorhubCsv(name) {
+      const label = this.sensorhubFieldLabel(name);
       const titik = this.sensorhubSeriesFor(name);
       if (!titik.length) {
-        this.showToast(`Belum ada data "${name}" pada rentang ini.`, 'warn');
+        this.showToast(`Belum ada data "${label}" pada rentang ini.`, 'warn');
         return;
       }
       const unit = this.sensorhubSensorUnit(name);
@@ -4926,7 +4979,7 @@ function app() {
       titik.forEach((p) => {
         baris.push(`${new Date(p.ts).toLocaleString('id-ID')};${String(p.v).replace('.', ',')}`);
       });
-      const berkas = `${name}`.replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, '') || 'sensor';
+      const berkas = `${label}`.replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, '') || 'sensor';
       const blob = new Blob(['\uFEFF' + baris.join('\r\n') + '\r\n'], {
         type: 'text/csv;charset=utf-8',
       });
@@ -4938,7 +4991,7 @@ function app() {
       tautan.click();
       document.body.removeChild(tautan);
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      this.showToast(`Data "${name}" diunduh (${titik.length} titik).`);
+      this.showToast(`Data "${label}" diunduh (${titik.length} titik).`);
     },
     // Ringkasan satu sensor: nilai terakhir, min/max, jumlah titik, waktu akhir.
     sensorhubSensorStat(name) {
@@ -4994,6 +5047,7 @@ function app() {
     },
     sensorhubChartConfig(nama, index) {
       const unit = this.sensorhubSensorUnit(nama);
+      const label = this.sensorhubFieldLabel(nama);
       const color = this.sensorhubColor(index);
       const series = this.sensorhubSeries || [];
       const values = series.map((row) => {
@@ -5005,7 +5059,7 @@ function app() {
         data: {
           labels: this.sensorhubTimeLabels(),
           datasets: [{
-            label: nama,
+            label,
             data: values,
             borderColor: color,
             backgroundColor: color + '33',
@@ -5029,7 +5083,7 @@ function app() {
                   const t = `${f?.ts || ''}`.replace('T', ' ');
                   return t.length >= 16 ? t.substring(0, 19) : t;
                 },
-                label: (ctx) => `${nama}: ${ctx.parsed.y}${unit ? ' ' + unit : ''}`,
+                label: (ctx) => `${label}: ${ctx.parsed.y}${unit ? ' ' + unit : ''}`,
               },
             },
           },
