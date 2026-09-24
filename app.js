@@ -983,6 +983,7 @@ function app() {
       this.selectedTaskInfo = null;
       this.taskPage = 0;
       this.loadingTaskIndex = null;
+      if (this.pendingTaskSave?.timer) clearTimeout(this.pendingTaskSave.timer);
       this.pendingTaskSave = null;
       this.localLastSuccessMs = 0;
       this.lastUpdate = null;
@@ -2012,7 +2013,10 @@ function app() {
       const payload = typeof command === 'string'
         ? bangunPayloadPerintahLama(cmd, legacyArgs || [])
         : bangunPayloadPerintah(cmd, Object.fromEntries(Object.entries(command).filter(([key]) => key !== 'cmd')));
-      this.mqttClient.publish(topic, payload); 
+      // QoS 1: perangkat lapangan sering sesaat kehilangan sinyal. Dengan QoS 1
+      // (dan sesi MQTT peristen di perangkat) broker MENGANTRE perintah ini dan
+      // mengantarkannya saat perangkat tersambung lagi — QoS 0 dibuang begitu saja.
+      this.mqttClient.publish(topic, payload, { qos: 1 }); 
     },
     async sendLocalCommand(command, legacyArgs = null, timeoutMs = 10000) {
       const enriched = typeof command === 'string' ? command : { ...command, uiId: this.config?.uiId || '0' };
@@ -3341,6 +3345,14 @@ function app() {
     // Perangkat membalas respTask (daftar terbaru) atau respError. Balasan itu
     // juga harus BENAR-BENAR berisi nilai yang kita kirim — kalau tidak (mis.
     // yang datang cuma salinan lama), jangan bilang "tersimpan".
+    //
+    // Jaringan lapangan bisa lemah: perintah baru sampai setelah perangkat
+    // tersambung lagi (broker mengantre), sementara perangkat juga mengirim
+    // SALINAN BASELINE setiap kali baru tersambung. Salinan lama itu tiba dengan
+    // retain=false (broker hanya menandai retain pada langganan baru), jadi TIDAK
+    // bisa dibedakan dari balasan asli. Karena itu kesimpulan tidak diambil dari
+    // balasan PERTAMA: tunggu seluruh jendela, ingat ketidakcocokan terakhir, dan
+    // minta daftar terbaru sekali bila ada ketidakcocokan.
     startTaskSaveWatch(perintah) {
       this.finishTaskSave();
       const task = perintah?.task || {};
@@ -3354,14 +3366,11 @@ function app() {
         index: idx,
         task,
         sebelum,
-        timer: setTimeout(() => {
-          if (!this.pendingTaskSave) return;
-          this.pendingTaskSave = null;
-          // Tidak ada balasan = perangkat tidak merespons → tandai offline
-          // supaya badge header (baris ID) langsung kuning, tidak menunggu 45 s.
-          this.lastLiveUpdate = null;
-          this.showToast('Kontroler tidak merespons — perubahan task belum tentu tersimpan.', 'warn');
-        }, 6000),
+        diubah: this.fieldTaskBerubah(sebelum, task),
+        mismatch: '',
+        adaBalasan: false,
+        mintaUlang: false,
+        timer: setTimeout(() => this.selesaikanSimpanTask(), this.taskSaveWindowMs),
       };
     },
     // Field yang nilainya benar-benar berbeda dari data SEBELUM disimpan.
@@ -3392,18 +3401,42 @@ function app() {
       const tugas = pending.index >= 0
         ? daftar.find(t => Number(t.index) === pending.index)
         : daftar.find(t => `${t.label}`.trim() === `${pending.task.label || ''}`.trim());
-      if (!tugas) {
-        this.finishTaskSave(false, 'Kontroler tidak mengirim data task yang disimpan.');
-        return;
-      }
-      const diubah = this.fieldTaskBerubah(pending.sebelum, pending.task);
-      const gagal = diubah.filter(k => !this.nilaiFieldTaskSama(k, tugas[k], pending.task[k]));
+      if (!tugas) return; // daftar ini belum memuat task tsb → tunggu balasan lain
+      pending.adaBalasan = true;
+      const gagal = (pending.diubah || []).filter(k => !this.nilaiFieldTaskSama(k, tugas[k], pending.task[k]));
       if (!gagal.length) {
         this.finishTaskSave(true);
         return;
       }
-      this.finishTaskSave(false,
-        `Kontroler belum menerapkan: ${gagal.map(k => this.labelFieldTask(k)).join(', ')}.`);
+      pending.mismatch = gagal.map(k => this.labelFieldTask(k)).join(', ');
+      // Bisa jadi ini SALINAN LAMA (mis. baseline saat perangkat baru tersambung)
+      // sedangkan perintahnya masih dalam perjalanan. Minta daftar terbaru SEKALI
+      // (perintah baca, tidak mengubah apa pun) lalu tetap tunggu sampai jendela
+      // habis — jangan langsung menyimpulkan gagal.
+      if (!pending.mintaUlang) {
+        pending.mintaUlang = true;
+        this.publishCommand({ cmd: 'getTasks' });
+      }
+    },
+    // Jendela tunggu habis → baru sekarang simpulkan hasilnya.
+    selesaikanSimpanTask() {
+      const pending = this.pendingTaskSave;
+      if (!pending) return;
+      const mismatch = pending.mismatch;
+      const adaBalasan = pending.adaBalasan;
+      this.pendingTaskSave = null;
+      if (mismatch) {
+        this.showToast(`Kontroler belum menerapkan: ${mismatch}.`, 'error');
+        return;
+      }
+      if (!adaBalasan) {
+        // Tidak ada balasan sama sekali = perangkat tidak merespons → tandai
+        // offline supaya badge header (baris ID) langsung kuning, tidak menunggu 45 s.
+        this.lastLiveUpdate = null;
+        this.showToast('Kontroler tidak merespons — perubahan task belum tentu tersimpan.', 'warn');
+        return;
+      }
+      this.showToast('Kontroler tidak mengirim data task yang disimpan.', 'warn');
     },
     finishTaskSave(sukses = null, pesan = '') {
       const pending = this.pendingTaskSave;
@@ -4628,6 +4661,10 @@ function app() {
     lastLiveUpdate: null,
     // Menunggu balasan perangkat setelah menyimpan task (mode online).
     pendingTaskSave: null,
+    // Batas tunggu simpan task. Perangkat lapangan bisa baru menjawab setelah
+    // tersambung lagi (perintah diantre broker), jadi jendela ini sengaja lega;
+    // keberhasilan tetap dilaporkan segera begitu balasan yang cocok tiba.
+    taskSaveWindowMs: 20000,
 
     get cloudBase() {
       return `${this.config?.cloudBaseUrl || ''}`.trim().replace(/\/+$/, '');
