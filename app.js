@@ -543,6 +543,22 @@ function app() {
       // Outage berikutnya boleh diberi tahu sekali lagi.
       this._vpsSnapshotNotified = false;
     },
+    // ── Gerbang perintah kontrol ──────────────────────────────────────────
+    // Sesi MQTT perangkat sekarang CLEAN: broker TIDAK mengantre perintah saat
+    // kontroler offline (perintah langsung dibuang). Jadi perintah kontrol yang
+    // dikirim saat itu pasti hilang — lebih baik ditolak di sini dengan pesan
+    // jelas: pengguna tahu, dan tidak ada tumpukan perintah dari beberapa UI
+    // yang saling menimpa saat perangkat tersambung kembali.
+    // Mode lokal (HTTP langsung ke perangkat) selalu boleh.
+    get bolehKirimPerintah() {
+      if (this.mode === 'local') return true;
+      if (this.mode !== 'mqtt' || !this.connected) return false;
+      return this.isControllerResponsive;
+    },
+    tolakKontrolTanpaKontroler() {
+      this.showToast('Kontroler belum terhubung/merespons — perintah tidak dikirim.', 'error');
+      return false;
+    },
     get statusBadge() { 
       const id = this.config?.mqtt?.kontrolId || '...';
       const label = this.getKontrolLabel(id);
@@ -2009,14 +2025,24 @@ function app() {
       if (!this.mqttClient?.connected) return this.showToast('Koneksi online belum tersambung.', 'error'); 
       const cmd = typeof command === 'string' ? command : command?.cmd;
       if (!cmd) return;
+      // Perintah BACA selalu boleh (tidak mengubah keadaan, sekaligus jadi cara
+      // memeriksa apakah kontroler hidup). Selain itu = perintah KONTROL → wajib
+      // kontroler benar-benar merespons. Sesi perangkat CLEAN, jadi perintah
+      // kontrol saat offline akan dibuang broker; menahannya di sini mencegah
+      // pengguna melihat "terkirim" padahal tidak pernah dieksekusi.
+      const perintahBacaSaja = ['getStatus', 'getAll', 'getTasks', 'getSensors', 'getActuators', 'getLogs', 'login', 'setAdminPassword'];
+      if (!perintahBacaSaja.includes(cmd) && !this.bolehKirimPerintah) {
+        return this.tolakKontrolTanpaKontroler();
+      }
       const topic = `abadinet-in/${this.config.mqtt.kontrolId}/${this.config.uiId || '0'}/0/${cmd}`; 
       const payload = typeof command === 'string'
         ? bangunPayloadPerintahLama(cmd, legacyArgs || [])
         : bangunPayloadPerintah(cmd, Object.fromEntries(Object.entries(command).filter(([key]) => key !== 'cmd')));
-      // QoS 1: perangkat lapangan sering sesaat kehilangan sinyal. Dengan QoS 1
-      // (dan sesi MQTT peristen di perangkat) broker MENGANTRE perintah ini dan
-      // mengantarkannya saat perangkat tersambung lagi — QoS 0 dibuang begitu saja.
+      // QoS 1: menjamin perintah sampai selama perangkat SEDANG online (broker
+      // mengulang sampai di-ack). Sesi perangkat clean, jadi tidak ada antrean
+      // lintas-waktu — perintah saat offline sudah ditolak di atas.
       this.mqttClient.publish(topic, payload, { qos: 1 }); 
+      return true;
     },
     async sendLocalCommand(command, legacyArgs = null, timeoutMs = 10000) {
       const enriched = typeof command === 'string' ? command : { ...command, uiId: this.config?.uiId || '0' };
@@ -3331,7 +3357,13 @@ function app() {
           this.endAction();
         });
       } else {
-        this.publishCommand(perintah);
+        // publishCommand menolak (return false) bila kontroler belum merespons:
+        // jangan mulai jendela tunggu "tersimpan" dan jangan tutup modal supaya
+        // perubahan pengguna tidak hilang tanpa jejak.
+        if (this.publishCommand(perintah) === false) {
+          this.endAction();
+          return;
+        }
         // Tunggu balasan perangkat sebelum bilang "tersimpan": kalau kontroler
         // tidak merespons (mis. sedang offline), perubahan TIDAK diterapkan dan
         // pengguna harus tahu, bukan dapat notifikasi palsu.

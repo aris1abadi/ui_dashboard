@@ -384,7 +384,7 @@
                 <button class="task-main-btn"
                   :class="{ 'status-btn-on': task.actuatorActive && isActuatorOnline(task), 'status-btn-off': !task.actuatorActive && isActuatorOnline(task), 'status-btn-offline': !isActuatorOnline(task), 'status-btn-on-manual': task.actuatorActive && isActuatorOnline(task) && getTaskTriggerSource(task) === 'manual', 'status-btn-on-auto': task.actuatorActive && isActuatorOnline(task) && getTaskTriggerSource(task) !== 'manual' }"
                   @click="runTask(task.index, $event.currentTarget)"
-                  :disabled="!isActuatorOnline(task) || actionInFlight"
+                  :disabled="!isActuatorOnline(task) || actionInFlight || !bolehKirimPerintah"
                   :aria-label="`${getSensorLabel(task)} ${formatNilaiSensor(getTaskSensorValue(task))}${getSensorUnit(task) ? ` ${getSensorUnit(task)}` : ''}`">
                   <div class="glow-ring" :style="{ '--progress': getTaskProgress(task) + '%' }"></div>
                   <span class="label-top" :title="getSensorLabel(task)"
@@ -775,7 +775,7 @@
                   <button class="btn small status-btn"
                     :class="{ 'status-on': actuator.active, 'status-off': !actuator.active && actuator.online, 'status-offline': !actuator.online }"
                     @click="sendActuator(actuator.index, actuator.active ? 'off' : 'on', $event.currentTarget)"
-                    :disabled="!actuator.online"
+                    :disabled="!actuator.online || !bolehKirimPerintah"
                     x-text="actuator.online ? (actuator.active ? 'Aktif' : 'Nonaktif') : 'Offline'">
                   </button>
                 </div>
@@ -1129,7 +1129,7 @@
       <div class="modal-header">
         <h3 x-text="getTaskModalTitle()"></h3>
         <div class="flex items-center gap-2">
-          <button @click="submitTask" class="btn ghost small p-1" :disabled="actionInFlight" title="Simpan Task">
+          <button @click="submitTask" class="btn ghost small p-1" :disabled="actionInFlight || !bolehKirimPerintah" title="Simpan Task">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
               <polyline points="17 21 17 13 7 13 7 21"/>
@@ -1288,7 +1288,7 @@
       <div class="modal-header">
         <h3 x-text="selectedTaskInfo ? `Setup ${getTaskLabel(selectedTaskInfo)}` : 'Setup Task'"></h3>
         <div class="flex items-center gap-2">
-          <button @click="submitTask(); showAllTasksModal = false" class="btn ghost small p-1" :disabled="actionInFlight" title="Simpan Task">
+          <button @click="submitTask(); showAllTasksModal = false" class="btn ghost small p-1" :disabled="actionInFlight || !bolehKirimPerintah" title="Simpan Task">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
               <polyline points="17 21 17 13 7 13 7 21"/>
@@ -1617,7 +1617,7 @@
   <script src="mqtt.min.js"></script>
   <script src="chart.umd.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260924c"></script>
+  <script src="app.js?v=20260924e"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
