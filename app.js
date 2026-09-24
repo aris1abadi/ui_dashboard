@@ -2144,6 +2144,9 @@ function app() {
       return { ok, data: result, text: JSON.stringify(result) };
     },
     // durationMs=0 → perangkat memakai durasi manual tersimpan (NVS).
+    // Tombol aktuator: JANGAN pakai overlay blokir layar — cukup spinner kecil di
+    // tombol itu sendiri (lewat beginAction/actionInFlight). Overlay hanya dipakai
+    // saat MENYIMPAN TASK.
     async sendActuator(index, action, tombol) {
       if (!this.beginAction(tombol)) return;
       if (this.mode === 'local') {
@@ -2153,12 +2156,12 @@ function app() {
         this.endAction();
         return;
       }
-      const act = (this.actuators || []).find(a => Number(a.index) === Number(index)) || {};
-      const nama = act.label || `Aktuator ${index}`;
-      await this.kirimPerintahKontrol({ cmd: 'setActuator', index, action, durationMs: 0 },
-                                      { label: `${action === 'on' ? 'menyalakan' : 'mematikan'} aktuator idx ${index} (${nama})` });
+      // publishCommand sudah menerapkan gerbang: ditolak + notifikasi bila
+      // kontroler belum merespons (sesi MQTT perangkat clean, jadi tidak diantre).
+      this.publishCommand({ cmd: 'setActuator', index, action, durationMs: 0 });
       this.endAction();
     },
+    // Tombol manual per task: cukup spinner kecil di tombol task itu (sudah ada).
     async runTask(index, tombol) {
       if (!this.beginAction(tombol)) return;
       this.loadingTaskIndex = index;
@@ -2168,7 +2171,7 @@ function app() {
         this.endAction();
         return;
       }
-      await this.kirimPerintahKontrol({ cmd: 'runTask', index }, { label: 'menjalankan task' });
+      this.publishCommand({ cmd: 'runTask', index });
       this.loadingTaskIndex = null;
       this.endAction();
     },
@@ -3477,10 +3480,8 @@ function app() {
         // NAMA task, INDEKS, dan nilai aktuator yang dikirim supaya tidak ada
         // keraguan task mana yang diubah.
         const labelPerintah = `task "${this.getTaskLabel(this.editingTask)}" (idx ${index}) → aktuator ${muatanTask.actuatorIndex}`;
-        this.bukaOverlayPerintah();
-        const dijawab = await this.tungguBalasan(() => this.publishCommand(perintah), 8000);
-        const tersimpan = this.selesaikanOverlay(dijawab, labelPerintah, 8000);
-        if (tersimpan) {
+        const dijawab = await this.kirimPerintahKontrol(perintah, { label: labelPerintah, timeoutMs: 8000 });
+        if (dijawab) {
           // Tunggu balasan perangkat sebelum bilang "tersimpan": kalau kontroler
           // tidak merespons (mis. sedang offline), perubahan TIDAK diterapkan dan
           // pengguna harus tahu, bukan dapat notifikasi palsu.

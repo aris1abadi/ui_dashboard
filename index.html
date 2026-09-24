@@ -1617,7 +1617,7 @@
   <script src="mqtt.min.js"></script>
   <script src="chart.umd.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260924i"></script>
+  <script src="app.js?v=20260924j"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
@@ -1661,14 +1661,16 @@
     }
   </script>
 
-  <!-- Overlay perintah kontrol: spinner di tengah layar; teks HANYA saat gagal/timeout -->
+  <!-- Overlay SIMPAN TASK: spinner di tengah layar; teks HANYA saat gagal/timeout.
+       CATATAN: jangan pakai `inset:0` — sebagian browser lama tidak mendukungnya
+       sehingga elemen menciut dan spinner muncul di pojok kiri. Pakai properti eksplisit. -->
   <style>
     @keyframes cmdspin { to { transform: rotate(360deg); } }
   </style>
   <div x-show="perintahOverlay.aktif" x-transition.opacity
        aria-live="polite" role="status"
-       style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.38);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;backdrop-filter:blur(1.5px);">
-    <div style="width:48px;height:48px;border:4px solid rgba(255,255,255,.25);border-top-color:#4ade80;border-radius:50%;animation:cmdspin .8s linear infinite;"></div>
+       style="position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;z-index:9999;background:rgba(0,0,0,.38);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;box-sizing:border-box;">
+    <div style="width:48px;height:48px;flex:0 0 auto;margin:auto;border:4px solid rgba(255,255,255,.25);border-top-color:#4ade80;border-radius:50%;animation:cmdspin .8s linear infinite;"></div>
     <div x-show="!!perintahOverlay.hasil"
          style="max-width:76vw;padding:10px 14px;border-radius:10px;background:rgba(22,22,24,.94);font-size:13px;line-height:1.45;font-weight:600;text-align:center;"
          :style="perintahOverlay.variant === 'error' ? 'color:#f87171' : 'color:#4ade80'"
