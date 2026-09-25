@@ -10,8 +10,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="manifest" href="manifest.webmanifest" />
+  <!-- Ikon aplikasi: logo KarjoAgro (karjoAgroGHUIapp.png) diolah oleh
+       tools/make_icons.py. favicon.ico tetap disertakan untuk browser lama. -->
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="greenhouse.css" />
 </head>
@@ -323,7 +328,7 @@
                 <div class="flex-1">
                   <div class="title" x-text="labelSensor(sensor)"></div>
                   <div class="meta"
-                    x-text="`${getUiLabel('node')} ${sensor.nodeId}:${sensor.childId} • ${formatNilaiSensor(sensor.value, getSensorUnit({ sensorNode: sensor.nodeId, sensorChild: sensor.childId }))}`"></div>
+                    x-text="`${getUiLabel('node')} ${sensor.nodeId}:${sensor.childId} • ${formatSensorTampil(sensor, getSensorUnit({ sensorNode: sensor.nodeId, sensorChild: sensor.childId }))}`"></div>
                   <div class="meta" x-show="sensorCalibrationText(sensor)" x-text="sensorCalibrationText(sensor)"></div>
                 </div>
                 <span class="badge badge-muted">Atur</span>
@@ -385,12 +390,12 @@
                   :class="{ 'status-btn-on': task.actuatorActive && isActuatorOnline(task), 'status-btn-off': !task.actuatorActive && isActuatorOnline(task), 'status-btn-offline': !isActuatorOnline(task), 'status-btn-on-manual': task.actuatorActive && isActuatorOnline(task) && getTaskTriggerSource(task) === 'manual', 'status-btn-on-auto': task.actuatorActive && isActuatorOnline(task) && getTaskTriggerSource(task) !== 'manual' }"
                   @click="runTask(task.index, $event.currentTarget)"
                   :disabled="!isActuatorOnline(task) || actionInFlight || !bolehKirimPerintah"
-                  :aria-label="`${getSensorLabel(task)} ${formatNilaiSensor(getTaskSensorValue(task))}${getSensorUnit(task) ? ` ${getSensorUnit(task)}` : ''}`">
+                  :aria-label="`${getSensorLabel(task)} ${formatSensorTampil(getTaskSensor(task))}${getSensorUnit(task) ? ` ${getSensorUnit(task)}` : ''}`">
                   <div class="glow-ring" :style="{ '--progress': getTaskProgress(task) + '%' }"></div>
                   <span class="label-top" :title="getSensorLabel(task)"
                     x-text="pendekkanTeks(getSensorLabel(task), 12)"></span>
                   <div class="value-container">
-                    <span class="value" x-text="formatNilaiSensor(getTaskSensorValue(task))"></span>
+                    <span class="value" x-text="formatSensorTampil(getTaskSensor(task))"></span>
                     <span class="unit" x-show="getSensorUnit(task)" x-text="getSensorUnit(task)"></span>
                   </div>
                   <span class="label-bottom" :title="getTaskStatusLabel(task)"
@@ -402,6 +407,13 @@
                     </div>
                   </template>
                 </button>
+                <!-- Otomasi sedang ditahan (hold-off manual). Tanpa baris ini
+                     kartu task tampak "tidak ada respons" padahal trigger ambang
+                     memang kena jeda setelah aktuator dimatikan manual. -->
+                <div class="meta text-amber-300" x-show="taskHoldActive(task)"
+                  x-text="taskHoldText(task)"></div>
+                <button class="btn ghost small" x-show="taskHoldActive(task)"
+                  @click.stop="clearActuatorHold(task.actuatorIndex, $event.currentTarget)">Lepas tahan</button>
               </div>
             </div>
           </template>
@@ -735,7 +747,7 @@
                   <div class="title flex items-baseline gap-2 flex-wrap">
                     <span x-text="labelSensor(sensor)"></span>
                     <span class="text-white font-bold"
-                      x-text="formatNilaiSensor(sensor.value, getSensorUnit({ sensorNode: sensor.nodeId, sensorChild: sensor.childId }))"></span>
+                      x-text="formatSensorTampil(sensor, getSensorUnit({ sensorNode: sensor.nodeId, sensorChild: sensor.childId }))"></span>
                   </div>
                   <div class="meta" x-text="`${getUiLabel('node')} ${sensor.nodeId}:${sensor.childId}`"></div>
                   <div class="meta" x-show="sensorInfoLine(sensor)" x-text="sensorInfoLine(sensor)"></div>
@@ -1516,15 +1528,20 @@
           </p>
         </div>
 
-        <!-- Rentang waktu -->
-        <div class="flex gap-2 mb-4 flex-wrap">
-          <button class="btn small" :class="cloudDateRange === '24h' ? 'primary' : 'ghost'"
-            @click="cloudDateRange='24h'; fetchCloudData()">1 Hari</button>
-          <button class="btn small" :class="cloudDateRange === '7d' ? 'primary' : 'ghost'"
-            @click="cloudDateRange='7d'; fetchCloudData()">7 Hari</button>
-          <button class="btn small" :class="cloudDateRange === '30d' ? 'primary' : 'ghost'"
-            @click="cloudDateRange='30d'; fetchCloudData()">30 Hari</button>
-        </div>
+        <!-- Keterangan jendela data. Pilihan rentang waktu (1/7/30 hari) DIHAPUS:
+             grafik selalu memakai titik TERBARU yang cukup (maks 
+             SENSORHUB_CHART_POINTS = 30 titik), sedangkan tombol ⬇ mengunduh
+             SELURUH data yang tersimpan di SensorHub. -->
+        <p class="help mb-4">
+          Grafik menampilkan <b>30 titik terakhir</b> dari
+          <b x-text="cloudDataCount"></b> titik terbaru yang dimuat
+          <span x-show="cloudWindowJam" x-text="`(jendela ${cloudWindowJam} jam terakhir)`"></span>.
+          Tombol ⬇ mengunduh <b>seluruh</b> data sensor (semua titik yang tersimpan).
+        </p>
+        <p class="text-xs text-yellow-400 mb-4" x-show="cloudSeriesTruncated">
+          ⚠️ Data pada jendela ini sangat padat sehingga dibatasi 5000 titik terawal jendela;
+          grafik memakai bagian yang tersedia. Unduhan CSV tetap mengambil seluruh data.
+        </p>
 
         <!-- Pilih SATU sensor untuk digrafikkan -->
         <div class="form-group" x-show="sensorhubFieldList.length">
@@ -1567,20 +1584,23 @@
                 <span class="shrink-0 text-gray-500 text-xs" x-text="sensorhubSensorUnit(nama)"></span>
                 <span class="shrink-0 text-[10px] text-gray-500" x-text="sensorhubSensorTime(nama)"></span>
                 <button @click="downloadSensorhubCsv(nama)" class="btn icon-btn small shrink-0"
-                  :disabled="!sensorhubSensorStat(nama).count"
-                  title="Unduh data sensor ini (CSV)">⬇</button>
+                  :disabled="!sensorhubSensorStat(nama).count || cloudDownloadBusy"
+                  :title="cloudDownloadBusy ? 'Mengambil seluruh data...' : 'Unduh SELURUH data sensor ini (CSV)'">
+                  <span x-show="!cloudDownloadBusy">⬇</span>
+                  <span x-show="cloudDownloadBusy">⏳</span>
+                </button>
               </h6>
               <div style="position:relative;height:220px;">
                 <canvas :id="`sensorhub-chart-${i}`"></canvas>
               </div>
               <p class="text-xs text-gray-500 mt-1" x-show="!sensorhubSensorStat(nama).count">
-                Belum ada data sensor ini pada rentang waktu terpilih.
+                Belum ada data sensor ini.
               </p>
             </div>
           </template>
 
           <p class="text-xs text-gray-500 mt-3" x-show="!cloudHistoryLoading && cloudDataCount === 0">
-            Belum ada data untuk node ini pada rentang waktu terpilih.
+            Belum ada data untuk node ini.
           </p>
         </div>
 
@@ -1617,7 +1637,7 @@
   <script src="mqtt.min.js"></script>
   <script src="chart.umd.min.js"></script>
   <script src="alpine.min.js" defer></script>
-  <script src="app.js?v=20260924k"></script>
+  <script src="app.js?v=20260925a"></script>
   <script>
     window.resetUiCache = async function () {
       if (!confirm('Hapus cache aplikasi dan reload halaman?')) return;
@@ -1638,27 +1658,17 @@
         alert('Gagal menghapus cache aplikasi.');
       }
     };
-    // Muat ulang SEKALI bila service worker BARU mengambil alih. Tanpa ini,
-    // halaman yang sudah lama terbuka tetap menjalankan app.js versi lama
-    // (gejala: perbaikan sudah di-deploy tetapi notifikasi "tidak berubah").
-    // Hanya berlaku untuk halaman yang sebelumnya SUDAH dikendalikan SW, supaya
-    // pemasangan pertama tidak memicu muat ulang berulang.
-    if ('serviceWorker' in navigator) {
-      const sudahDikendalikan = !!navigator.serviceWorker.controller;
-      let sudahMuatUlang = false;
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (sudahMuatUlang || !sudahDikendalikan) return;
-        sudahMuatUlang = true;
-        location.reload();
-      });
-    }
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js').catch(() => {
-          // Offline support is best-effort; the app still works without SW.
-        });
-      });
-    }
+    // ── Service worker / mode offline SUDAH TIDAK DIPAKAI (25 Sep 2026) ──
+    // Dulu dipakai untuk mode "langsung ke AP" (mem-proxy permintaan HTTP ke
+    // kontroler lokal dari halaman HTTPS), tetapi jalur itu terkendala
+    // CORS/mixed-content. Untuk kontrol langsung sekarang dipakai webserver di
+    // filesystem ESP32 (buka http://192.168.4.1 apa adanya), jadi proxy SW tidak
+    // diperlukan lagi.
+    // Tanpa SW: tidak ada risiko UI basi setelah deploy, dan pemasangan PWA
+    // tetap bisa (Chrome tidak mensyaratkan service worker untuk "Install app").
+    // Berkas sw.js sengaja DIBIARKAN ada sebagai "saklar mati": pengguna yang
+    // masih punya service worker lama (versi cache) akan melepas & membersihkan
+    // cache-nya sendiri saat halaman dibuka. Lihat ui_dashboard/sw.js.
   </script>
 
   <!-- Overlay SIMPAN TASK: spinner di tengah layar; teks HANYA saat gagal/timeout.

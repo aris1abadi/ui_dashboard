@@ -157,6 +157,10 @@ function parseSensorsJson(muatan) {
     valueType: toNumber(item.valueType ?? 0),
     value: item.value === '' || item.value === undefined ? null : toNumber(item.value, null),
     rawValue: item.rawValue === '' || item.rawValue === undefined ? null : toNumber(item.rawValue, null),
+    // Sensor jarak: kalibrasi dilakukan DI NODE, jadi node bisa mengirim penanda
+    // "tidak terdeteksi" / "belum dikalibrasi" alih-alih angka ketinggian.
+    notDetected: toBool(item.notDetected),
+    notCalibrated: toBool(item.notCalibrated),
     lastSensorRawValue: item.lastSensorRawValue === '' || item.lastSensorRawValue === undefined ? null : toNumber(item.lastSensorRawValue, null),
     moistureDryCalibration: item.moistureDryCalibration === '' || item.moistureDryCalibration === undefined ? 800 : toNumber(item.moistureDryCalibration, 800),
     moistureWetCalibration: item.moistureWetCalibration === '' || item.moistureWetCalibration === undefined ? 490 : toNumber(item.moistureWetCalibration, 490),
@@ -219,6 +223,12 @@ function parseTasksJson(muatan) {
       thresholdEnabled: toBool(item.thresholdEnabled),
       thresholdAbove: toBool(item.thresholdAbove),
       actuatorActive: toBool(item.actuatorActive),
+      // Info tahan (hold) aktuator task ini → dipakai kartu task untuk
+      // menjelaskan kenapa otomasi ambang tidak bereaksi.
+      actuatorActivePriority: toNumber(item.actuatorActivePriority ?? 0),
+      actuatorHoldOffRemainMs: toNumber(item.actuatorHoldOffRemainMs ?? 0),
+      actuatorHoldRemainMs: toNumber(item.actuatorHoldRemainMs ?? 0),
+      actuatorHoldReason: item.actuatorHoldReason || 'none',
       lastSensorValue: item.lastSensorValue === '' || item.lastSensorValue === undefined ? null : toNumber(item.lastSensorValue, null),
       lastSensorRawValue: item.lastSensorRawValue === '' || item.lastSensorRawValue === undefined ? null : toNumber(item.lastSensorRawValue, null),
       lastTriggerSource: normalisasiSumberTrigger(item.lastTriggerSource ?? item.triggerSource ?? item.source ?? item.lastTrigger ?? item.trigger ?? 'none'),
@@ -259,6 +269,14 @@ function formatNilaiSensor(nilai, unit = '') {
   const numeric = Number(nilai);
   if (!Number.isFinite(numeric)) return `${nilai}${unit ? ` ${unit}` : ''}`;
   return `${numeric.toFixed(1)}${unit ? ` ${unit}` : ''}`;
+}
+// Nilai sensor untuk TAMPILAN. Sensor jarak dikalibrasi DI NODE, sehingga node
+// bisa mengirim penanda (bukan angka): tampilkan teks, jangan angka sentinel.
+function formatSensorTampil(sensor, unit = '') {
+  if (!sensor) return '-';
+  if (sensor.notDetected) return 'Tidak terdeteksi';
+  if (sensor.notCalibrated) return 'Belum dikalibrasi';
+  return formatNilaiSensor(sensor.value, unit);
 }
 function roundToOneDecimal(nilai) {
   const numeric = Number(nilai);
@@ -328,6 +346,23 @@ function parseLocalDateTimeInput(value) {
 const sensorhubChartInstances = {};
 // Palet warna grafik — SAMA PERSIS dengan SensorHub (channel_detail.html).
 const sensorhubChartPalette = ['#FF1A75', '#ff8a65', '#81c784', '#ba68c8', '#fff176', '#4db6ac', '#e57373', '#90a4ae'];
+
+// ── Riwayat sensor (modal ☁️) ─────────────────────────────────────────────
+// Grafik hanya menggambar SENSORHUB_CHART_POINTS titik TERAKHIR: satu channel
+// bisa berisi ribuan titik (tergantung interval kirim kontroler), sehingga garis
+// jadi tidak terbaca dan Chart.js berat. SELURUH titik tetap bisa diunduh lewat
+// tombol ⬇ (lihat downloadSensorhubCsv → fetchAllSeries).
+const SENSORHUB_CHART_POINTS = 30;
+// Batas `limit` di backend SensorHub (MAX_POINTS di backend/series_api.py).
+const SENSORHUB_MAX_LIMIT = 5000;
+// Jendela waktu yang dicoba BERTAHAP (jam) sampai jumlah titik cukup untuk grafik
+// dan tidak terpotong `limit`.
+//   ⚠️ /api/series mengurutkan NAIK (terlama dulu) lalu memotong `limit`, jadi
+//   jendela yang terlalu besar justru MEMBUANG titik terbaru. Karena itu jendela
+//   dinaikkan dari yang kecil dan berhenti begitu jumlah titik < limit.
+const SENSORHUB_WINDOWS_JAM = [0.5, 2, 6, 24, 72, 168, 720];
+// Batas halaman saat mengunduh seluruh data (5000 titik per halaman).
+const SENSORHUB_MAX_HALAMAN = 40;
 
 function app() {
   return {
@@ -1108,6 +1143,32 @@ function app() {
     // Perintah manual memasang hold-off (bawaan 1 jam): selama itu otomasi
     // ambang/jadwal TIDAK bisa memicu aktuator. Teks di bawah menjelaskannya,
     // dan `clearHold` melepaskannya lebih cepat.
+    // Khusus kartu TASK: nilainya ikut di payload task
+    // (actuatorHoldOffRemainMs / actuatorHoldRemainMs / actuatorActivePriority),
+    // sehingga kartu bisa menjelaskan kenapa nilainya lolos ambang tetapi
+    // aktuator tidak menyala — dulu kartu tampak "tidak ada respons".
+    taskHoldOffRemainMs(task) {
+      return Math.max(0, Math.round(toNumber(task?.actuatorHoldOffRemainMs, 0)));
+    },
+    taskHoldRemainMs(task) {
+      return Math.max(0, Math.round(toNumber(task?.actuatorHoldRemainMs, 0)));
+    },
+    taskHoldActive(task) {
+      // Sengaja lewat taskHoldText(): ON otomatis biasa (timer ambang/jadwal)
+      // BUKAN "ditahan" dan tidak boleh memunculkan tombol "Lepas tahan".
+      return this.taskHoldText(task) !== '';
+    },
+    taskHoldText(task) {
+      const jeda = this.taskHoldOffRemainMs(task);
+      if (jeda > 0) {
+        return `Otomasi ditahan manual • sisa ${this.formatDurasiManual(jeda)} • ambang/jadwal tidak bisa memicu`;
+      }
+      const tahan = this.taskHoldRemainMs(task);
+      if (tahan > 0 && toNumber(task?.actuatorActivePriority, 0) >= 3) {
+        return `Manual ON • sisa ${this.formatDurasiManual(tahan)} • otomasi ditahan`;
+      }
+      return '';
+    },
     actuatorHoldText(actuator) {
       if (!actuator) return '';
       const jeda = Math.round(toNumber(actuator.holdOffRemainMs, 0));
@@ -3167,11 +3228,17 @@ function app() {
     // Nilai sensor terkini untuk sebuah task. Diutamakan dari daftar sensor yang
     // sedang tampil (termasuk saat perangkat hanya mengirim DELTA/penghematan
     // kuota), fallback ke nilai terakhir yang dikirim bersama daftar task.
-    getTaskSensorValue(task) {
+    // Objek sensor (dari daftar sensor yang sedang tampil) untuk sebuah task.
+    // Dipakai agar kartu task bisa menampilkan penanda "tidak terdeteksi".
+    getTaskSensor(task) {
       if (!task) return null;
       const node = Number(task.sensorNode);
       const child = Number(task.sensorChild);
-      const sensor = (this.sensors || []).find(s => Number(s.nodeId) === node && Number(s.childId) === child);
+      return (this.sensors || []).find(s => Number(s.nodeId) === node && Number(s.childId) === child) || null;
+    },
+    getTaskSensorValue(task) {
+      if (!task) return null;
+      const sensor = this.getTaskSensor(task);
       const langsung = Number(sensor?.value);
       if (Number.isFinite(langsung)) return langsung;
       const tersimpan = Number(task.lastSensorValue);
@@ -4815,8 +4882,12 @@ function app() {
     cloudHistory: [],
     cloudHistoryLoading: false,
     cloudHistoryError: '',
-    cloudDateRange: '24h',
+    // Jumlah titik yang dimuat (jendela data), status pemotongan, dan penanda
+    // unduhan CSV yang sedang mengambil seluruh data.
     cloudDataCount: 0,
+    cloudSeriesTruncated: false,
+    cloudDownloadBusy: false,
+    cloudWindowJam: 0,
     // Daftar node (serial) yang punya data di SensorHub.
     sensorhubNodes: [],
     sensorhubSn: '',
@@ -5058,7 +5129,6 @@ function app() {
       this.showCloudModal = true;
       this.cloudHistoryError = '';
       await this.loadSensorHubNodes();
-      this.cloudDateRange = this.cloudDateRange || '24h';
       await this.fetchCloudData();
     },
     closeCloudHistory() {
@@ -5066,6 +5136,7 @@ function app() {
       this.destroySensorhubCharts();
       this.cloudHistory = [];
       this.sensorhubSeries = [];
+      this.cloudSeriesTruncated = false;
       this.cloudHistoryError = '';
     },
 
@@ -5101,40 +5172,74 @@ function app() {
       }
     },
 
+    // Satu permintaan /api/series — SELURUH kolom channel dimuat sekaligus
+    // (tanpa filter `field`) supaya ganti sensor di dropdown langsung tampil.
+    async requestSeries({ sinceIso = null, limit = SENSORHUB_MAX_LIMIT } = {}) {
+      const url =
+        `${this.cloudBase}/api/series?sn=${encodeURIComponent(this.sensorhubSn)}` +
+        (sinceIso ? `&since=${encodeURIComponent(sinceIso)}` : '') +
+        `&limit=${limit}&token=${encodeURIComponent(this.cloudToken)}`;
+      const resp = await fetch(url, { cache: 'no-store' });
+      const json = await resp.json();
+      if (!json.ok) throw new Error(json.detail || 'Gagal memuat data SensorHub');
+      return json.data || [];
+    },
+
+    // Ambil titik TERBARU yang cukup untuk grafik: jendela waktu dinaikkan
+    // bertahap dan berhenti begitu datanya lengkap (lihat SENSORHUB_WINDOWS_JAM).
+    async fetchSeriesWindowed() {
+      let rows = [];
+      let truncated = false;
+      for (const jam of SENSORHUB_WINDOWS_JAM) {
+        const sinceIso = new Date(Date.now() - jam * 3600000).toISOString();
+        rows = await this.requestSeries({ sinceIso });
+        this.cloudWindowJam = jam;
+        // Jendela terpotong `limit` ⇒ titik TERBARU tidak ikut. Karena jendela
+        // diuji dari kecil ke besar, jendela ini yang terbaik untuk kasus itu.
+        if (rows.length >= SENSORHUB_MAX_LIMIT) {
+          truncated = true;
+          break;
+        }
+        truncated = false;
+        if (rows.length >= SENSORHUB_CHART_POINTS) break;
+      }
+      this.cloudSeriesTruncated = truncated;
+      return rows;
+    },
+
+    // Ambil SELURUH data channel, halaman demi halaman (dipakai unduhan CSV).
+    // /api/series mengurutkan naik (terlama dulu), jadi halaman berikutnya
+    // diminta dengan `since` = waktu titik terakhir + 1 ms.
+    async fetchAllSeries() {
+      const unik = new Map();   // ts → titik (buang duplikat di batas halaman)
+      let sinceIso = null;
+      for (let halaman = 0; halaman < SENSORHUB_MAX_HALAMAN; halaman += 1) {
+        const rows = await this.requestSeries({ sinceIso });
+        if (!rows.length) break;
+        rows.forEach((r) => unik.set(`${r.ts}`, r));
+        if (rows.length < SENSORHUB_MAX_LIMIT) break;
+        const terakhir = new Date(rows[rows.length - 1].ts).getTime();
+        if (!Number.isFinite(terakhir)) break;
+        sinceIso = new Date(terakhir + 1).toISOString();
+      }
+      return [...unik.values()];
+    },
+
     async fetchCloudData() {
       if (!this.cloudEnabled || !this.sensorhubSn) {
         this.destroySensorhubCharts();
         this.sensorhubSeries = [];
         this.cloudHistory = [];
+        this.cloudDataCount = 0;
         return;
       }
       this.cloudHistoryLoading = true;
       this.cloudHistoryError = '';
-      const since = new Date(Date.now() - ({
-        '1h': 3600000,
-        '6h': 21600000,
-        '24h': 86400000,
-        '7d': 604800000,
-        '30d': 2592000000,
-      }[this.cloudDateRange] || 86400000)).toISOString();
-
-      const token = encodeURIComponent(this.cloudToken);
-      const sn = encodeURIComponent(this.sensorhubSn);
-
       try {
-        // Seluruh kolom channel dimuat sekaligus (tanpa filter `field`) supaya
-        // ganti sensor di dropdown langsung tampil tanpa memuat data lagi.
-        const urlSeries =
-          `${this.cloudBase}/api/series?sn=${sn}&since=${encodeURIComponent(since)}` +
-          `&limit=1500&token=${token}`;
-
-        const seriesResp = await fetch(urlSeries, { cache: 'no-store' });
-        const series = await seriesResp.json();
-        if (!series.ok) throw new Error(series.detail || 'Gagal memuat data SensorHub');
-
-        this.sensorhubSeries = series.data || [];
-        this.cloudHistory = this.sensorhubSeries;
-        this.cloudDataCount = series.count || this.sensorhubSeries.length;
+        const rows = await this.fetchSeriesWindowed();
+        this.sensorhubSeries = rows;
+        this.cloudHistory = rows;
+        this.cloudDataCount = rows.length;
 
         // Sensor terpilih tidak ada lagi di channel ini → pilih otomatis
         // sensor pertama yang punya data.
@@ -5146,6 +5251,7 @@ function app() {
         this.cloudHistoryError = err.message || 'Gagal terhubung ke SensorHub';
         this.sensorhubSeries = [];
         this.cloudHistory = [];
+        this.cloudDataCount = 0;
       } finally {
         this.cloudHistoryLoading = false;
       }
@@ -5178,36 +5284,61 @@ function app() {
         .map((row) => ({ ts: row.ts, v: Number(row[name]) }))
         .filter((p) => Number.isFinite(p.v));
     },
-    // Unduh data SATU sensor dalam CSV (sesuai rentang waktu yang aktif).
-    downloadSensorhubCsv(name) {
+    // Deret yang DIGAMBAR: hanya titik terakhir (lihat SENSORHUB_CHART_POINTS)
+    // supaya garis tetap terbaca walau channel berisi ribuan titik.
+    get sensorhubChartSeries() {
+      const semua = this.sensorhubSeries || [];
+      return semua.length > SENSORHUB_CHART_POINTS ? semua.slice(-SENSORHUB_CHART_POINTS) : semua;
+    },
+    sensorhubChartSeriesFor(name) {
+      return this.sensorhubChartSeries
+        .map((row) => ({ ts: row.ts, v: Number(row[name]) }))
+        .filter((p) => Number.isFinite(p.v));
+    },
+    // Unduh SELURUH data satu sensor dalam CSV — bukan hanya titik yang
+    // digambar — dengan mengambil seluruh halaman /api/series.
+    async downloadSensorhubCsv(name) {
       const label = this.sensorhubFieldLabel(name);
-      const titik = this.sensorhubSeriesFor(name);
-      if (!titik.length) {
-        this.showToast(`Belum ada data "${label}" pada rentang ini.`, 'warn');
-        return;
+      if (this.cloudDownloadBusy) return;
+      this.cloudDownloadBusy = true;
+      this.showToast(`Mengambil seluruh data "${label}" dari SensorHub...`, 'info');
+      try {
+        const semuaBaris = await this.fetchAllSeries();
+        const titik = semuaBaris
+          .map((row) => ({ ts: row.ts, v: Number(row[name]) }))
+          .filter((p) => Number.isFinite(p.v));
+        if (!titik.length) {
+          this.showToast(`Belum ada data "${label}" tersimpan di SensorHub.`, 'warn');
+          return;
+        }
+        const unit = this.sensorhubSensorUnit(name);
+        const baris = [`waktu;nilai${unit ? ` (${unit})` : ''}`];
+        titik.forEach((p) => {
+          baris.push(`${new Date(p.ts).toLocaleString('id-ID')};${String(p.v).replace('.', ',')}`);
+        });
+        const berkas = `${label}`.replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, '') || 'sensor';
+        const blob = new Blob(['\uFEFF' + baris.join('\r\n') + '\r\n'], {
+          type: 'text/csv;charset=utf-8',
+        });
+        const url = URL.createObjectURL(blob);
+        const tautan = document.createElement('a');
+        tautan.href = url;
+        tautan.download = `${this.sensorhubSn || 'channel'}-${berkas}-semua-data.csv`;
+        document.body.appendChild(tautan);
+        tautan.click();
+        document.body.removeChild(tautan);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        this.showToast(`Data "${label}" diunduh (${titik.length} titik, seluruh data).`);
+      } catch (err) {
+        this.showToast(`Gagal mengunduh data: ${err.message || 'kesalahan jaringan'}`, 'warn');
+      } finally {
+        this.cloudDownloadBusy = false;
       }
-      const unit = this.sensorhubSensorUnit(name);
-      const baris = [`waktu;nilai${unit ? ` (${unit})` : ''}`];
-      titik.forEach((p) => {
-        baris.push(`${new Date(p.ts).toLocaleString('id-ID')};${String(p.v).replace('.', ',')}`);
-      });
-      const berkas = `${label}`.replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, '') || 'sensor';
-      const blob = new Blob(['\uFEFF' + baris.join('\r\n') + '\r\n'], {
-        type: 'text/csv;charset=utf-8',
-      });
-      const url = URL.createObjectURL(blob);
-      const tautan = document.createElement('a');
-      tautan.href = url;
-      tautan.download = `${this.sensorhubSn || 'channel'}-${berkas}-${this.cloudDateRange}.csv`;
-      document.body.appendChild(tautan);
-      tautan.click();
-      document.body.removeChild(tautan);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      this.showToast(`Data "${label}" diunduh (${titik.length} titik).`);
     },
     // Ringkasan satu sensor: nilai terakhir, min/max, jumlah titik, waktu akhir.
+    // Dihitung dari deret yang DIGAMBAR supaya angka kartu = isi grafik.
     sensorhubSensorStat(name) {
-      const titik = this.sensorhubSeriesFor(name);
+      const titik = this.sensorhubChartSeriesFor(name);
       if (!titik.length) return { count: 0, last: null, min: null, max: null, at: null };
       const nilai = titik.map((p) => p.v);
       const akhir = titik[titik.length - 1];
@@ -5252,7 +5383,7 @@ function app() {
     // Tema gelap dipakai karena dashboard selalu gelap (nilai dari
     // applyChartTheme() SensorHub saat mode dark).
     sensorhubTimeLabels() {
-      return (this.sensorhubSeries || []).map((row) => {
+      return (this.sensorhubChartSeries || []).map((row) => {
         const t = `${row.ts || ''}`.replace('T', ' ');
         return t.length >= 16 ? t.substring(11, 19) : t;
       });
@@ -5261,7 +5392,7 @@ function app() {
       const unit = this.sensorhubSensorUnit(nama);
       const label = this.sensorhubFieldLabel(nama);
       const color = this.sensorhubColor(index);
-      const series = this.sensorhubSeries || [];
+      const series = this.sensorhubChartSeries || [];
       const values = series.map((row) => {
         const v = row[nama];
         return v === null || v === undefined ? null : Number(v);

@@ -1,125 +1,48 @@
-const CACHE_NAME = 'karjoagro-ui-v61';
-// HANYA file yang benar-benar ada di hasil build (dist/) maupun di root repo.
-// File yang tidak ada membuat cache.addAll() gagal → service worker tidak pernah
-// terpasang. Aset ber-hash (CSS/icon/manifest) masuk cache saat runtime.
-const PRECACHE_URLS = [
-  './',
-  './index.html',
-  './app.js',
-  './alpine.min.js',
-  './chart.umd.min.js',
-  './mqtt.min.js',
-  './offline.html',
-];
+// ═══════════════════════════════════════════════════════════════════════════
+//  SAKLAR MATI service worker — fitur offline SUDAH TIDAK DIPAKAI
+// ═══════════════════════════════════════════════════════════════════════════
+//  LATAR BELAKANG (25 Sep 2026)
+//  Service worker dulu dipasang untuk "mode offline" / mode langsung ke AP:
+//  dashboard HTTPS memakai SW untuk mem-proxy permintaan HTTP ke kontroler
+//  lokal (menghindari mixed-content/CORS). Jalur itu terkendala CORS, dan untuk
+//  kontrol langsung kini cukup membuka webserver di filesystem ESP32
+//  (http://192.168.4.1) — jadi offline + proxy SW tidak diperlukan lagi.
+//
+//  MENGAPA BERKAS INI MASIH ADA
+//  Pengguna yang pernah membuka versi lama masih PUNYA service worker versi
+//  cache di browser-nya. Selama `sw.js` masih bisa diambil, browser akan
+//  memeriksa perubahannya setiap navigasi. Berkas ini membuat SW lama:
+//    1) mengambil alih segera (skipWaiting),
+//    2) MENGHAPUS semua cache milik aplikasi,
+//    3) MELEPAS dirinya sendiri (unregister).
+//  Setelah itu halaman berjalan tanpa SW dan selalu mengambil berkas terbaru
+//  dari server (tidak ada lagi "UI basi" setelah deploy).
+//
+//  `index.html` BARU tidak lagi memanggil serviceWorker.register().
+//  Handler `fetch` kosong di bawah hanya supaya SW tetap sah selama proses
+//  pelepasan (tanpa respondWith, semua permintaan langsung ke jaringan).
+// ═══════════════════════════════════════════════════════════════════════════
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
-  );
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
-    )
-  );
-  self.clients.claim();
-});
-
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  const url = new URL(request.url);
-
-  // Proxy semua request ke local controller (192.168.x.x / 10.x.x.x / 127.0.0.1) dari origin HTTPS
-  if (url.protocol === 'http:' && !url.hostname.includes('.') && url.origin !== self.location.origin) {
-    event.respondWith(proxyLocalRequest(request));
-    return;
-  }
-
-  // Proxy request HTTP ke local IP
-  if (url.protocol === 'http:' && /^(192\.168\..*|10\..*|172\.(1[6-9]|2[0-9]|3[01])\..*|127\.0\.0\.1|localhost)$/.test(url.hostname)) {
-    event.respondWith(proxyLocalRequest(request));
-    return;
-  }
-
-  if (request.method !== 'GET') return;
-
-  if (url.origin === self.location.origin && url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(request).catch(() => new Response(JSON.stringify({ ok: false, error: 'offline' }), {
-        status: 503,
-        headers: { 'Content-Type': 'application/json' }
-      }))
-    );
-    return;
-  }
-
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put('./index.html', responseClone));
-          return response;
-        })
-        .catch(async () => (await caches.match('./index.html')) || caches.match('./offline.html'))
-    );
-    return;
-  }
-
-  if (url.origin === self.location.origin) {
-    event.respondWith(
-      caches.match(request).then((cachedResponse) => {
-        if (cachedResponse) return cachedResponse;
-        return fetch(request)
-          .then((response) => {
-            if (response && response.status === 200 && response.type === 'basic') {
-              const responseClone = response.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
-            }
-            return response;
-          })
-          .catch(() => caches.match('./offline.html'));
-      })
-    );
-  }
-});
-
-// Menangani pesan proxy dari halaman (fallback untuk mixed content)
-self.addEventListener('message', (event) => {
-  if (event.data?.type === 'proxy-fetch' && event.data?.url) {
-    const port = event.ports?.[0];
-    if (!port) return;
-    const { url, method = 'GET', body } = event.data;
-    const fetchOpts = { mode: 'cors', credentials: 'omit' };
-    if (method !== 'GET') {
-      fetchOpts.method = method;
-      fetchOpts.headers = { 'Content-Type': 'application/json' };
-      if (body) fetchOpts.body = typeof body === 'string' ? body : JSON.stringify(body);
+  event.waitUntil((async () => {
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    } catch {
+      // Cache Storage tidak tersedia — tidak masalah, tujuan utamanya
+      // adalah melepas SW.
     }
-    fetch(url, fetchOpts)
-      .then(async (response) => {
-        const text = await response.text();
-        let data = null;
-        try { data = text ? JSON.parse(text) : null; } catch { data = text || null; }
-        port.postMessage(data);
-      })
-      .catch(() => port.postMessage(null));
-  }
+    try {
+      await self.registration.unregister();
+    } catch {
+      // Sudah dilepas oleh konteks lain.
+    }
+  })());
 });
 
-async function proxyLocalRequest(request) {
-  try {
-    // Clone request before sending karena body hanya bisa dibaca sekali
-    const proxyReq = request.clone();
-    const response = await fetch(proxyReq, { mode: 'cors', credentials: 'omit' });
-    return response;
-  } catch (err) {
-    return new Response(JSON.stringify({ ok: false, error: 'offline' }), {
-      status: 503,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-}
+// Tanpa respondWith → tidak ada cache, permintaan langsung ke jaringan.
+self.addEventListener('fetch', () => {});
